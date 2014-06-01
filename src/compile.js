@@ -1338,12 +1338,12 @@ Compiler.prototype.buildcodeobj = function(n, coname, decorator_list, args, call
         // Keyword and variable arguments are not currently supported in generators.
         // The call to pyCheckArgs assumes they can't be true.
         if (args && args.args.length > 0)
-            return this._gr("gener", "(function(){var $origargs=Array.prototype.slice.call(arguments);Sk.builtin.pyCheckArgs(\"", 
+            return this._gr("gener", "new Sk.builtins['function']((function(){var $origargs=Array.prototype.slice.call(arguments);Sk.builtin.pyCheckArgs(\"", 
                                      coname.v, "\",arguments,", args.args.length - defaults.length, ",", args.args.length, 
-                                     ");return new Sk.builtins['generator'](", scopename, ",$gbl,$origargs", frees, ");})");
+                                     ");return new Sk.builtins['generator'](", scopename, ",$gbl,$origargs", frees, ");}))");
         else
-            return this._gr("gener", "(function(){Sk.builtin.pyCheckArgs(\"", coname.v, 
-                                     "\",arguments,0,0);return new Sk.builtins['generator'](", scopename, ",$gbl,[]", frees, ");})");
+            return this._gr("gener", "new Sk.builtins['function']((function(){Sk.builtin.pyCheckArgs(\"", coname.v, 
+                                     "\",arguments,0,0);return new Sk.builtins['generator'](", scopename, ",$gbl,[]", frees, ");}))");
     else
         return this._gr("funcobj", "new Sk.builtins['function'](", scopename, ",$gbl", frees ,")");
 };
@@ -1445,7 +1445,7 @@ Compiler.prototype.cgenexpgen = function(generators, genIndex, elt)
     this.setBlock(end);
 
     if (genIndex === 1)
-        out("return null;");
+        out("return Sk.builtin.none.none$;");
 };
 
 Compiler.prototype.cgenexp = function(e)
@@ -1459,7 +1459,7 @@ Compiler.prototype.cgenexp = function(e)
     // but the code builder builds a wrapper that makes generators for normal
     // function generators, so we just do it outside (even just new'ing it
     // inline would be fine).
-    var gener = this._gr("gener", gen, "()");
+    var gener = this._gr("gener", "Sk.misceval.callsim(", gen, ");");
     // stuff the outermost iterator into the generator after evaluating it
     // outside of the function. it's retrieved by the fixed name above.
     out(gener, ".gi$locals.$iter0=Sk.abstr.iter(", this.vexpr(e.generators[0].iter), ");");
@@ -1536,7 +1536,7 @@ Compiler.prototype.vstmt = function(s)
             if (s.value)
                 out("return ", this.vexpr(s.value), ";");
             else
-                out("return null;");
+                out("return Sk.builtin.none.none$;");
             break;
         case Delete_:
             this.vseqexpr(s.targets);
@@ -1821,7 +1821,12 @@ Compiler.prototype.cmod = function(mod)
 
     var entryBlock = this.newBlock('module entry');
     this.u.prefixCode = "var " + modf + "=(function($modname){";
-    this.u.varDeclsCode = "var $blk=" + entryBlock + ",$exc=[],$gbl={},$loc=$gbl,$err=undefined;$gbl.__name__=$modname;Sk.globals=$gbl;";
+    this.u.varDeclsCode = "var $gbl = {};" +
+                         "if (Sk.retainGlobals) {" + 
+						  "    if (Sk.globals) { $gbl = Sk.globals; Sk.globals = $gbl }" + 
+						  "    else { Sk.globals = $gbl; }" +
+						  "} else { Sk.globals = $gbl; }" +
+						  "var $blk=" + entryBlock + ",$exc=[],$loc=$gbl,$err=undefined;$gbl.__name__=$modname;" ;
 
     // Add the try block that pops the try/except stack if one exists
     // Github Issue #38

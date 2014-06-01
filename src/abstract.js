@@ -30,6 +30,16 @@ Sk.abstr.binop_type_error = function(v, w, name)
     throw new Sk.builtin.TypeError("unsupported operand type(s) for " + name + ": '"
             + vtypename + "' and '" + wtypename + "'");
 };
+Sk.abstr.unop_type_error = function(v, name)
+{
+    var vtypename = Sk.abstr.typeName(v);
+    var uop = {
+        'UAdd':'+',
+        'USub':'-',
+        'Invert':'~'}[name];
+
+    throw new Sk.builtin.TypeError("bad operand type for unary " + uop + ": '" + vtypename + "'");
+};
 
 Sk.abstr.boNameToSlotFuncLhs_ = function(obj, name) {
   if (obj === null) {
@@ -87,6 +97,16 @@ Sk.abstr.iboNameToSlotFunc_ = function(obj, name) {
     case "BitXor":   return obj.nb$inplace_xor          ? obj.nb$inplace_xor          : obj['__ixor__'];
   }
 };
+Sk.abstr.uoNameToSlotFunc_ = function(obj, name) {
+  if (obj === null) {
+    return undefined;
+  };
+  switch (name) {
+    case "USub":      return obj.nb$negative          ? obj.nb$negative :          obj['__neg__'];
+    case "UAdd":      return obj.nb$positive          ? obj.nb$positive :          obj['__pos__'];
+    case "Invert":    return obj.nb$invert            ? obj.nb$invert :            obj['__invert__'];
+  }
+};
 
 Sk.abstr.binary_op_ = function(v, w, opname)
 {
@@ -138,6 +158,21 @@ Sk.abstr.binary_iop_ = function(v, w, opname)
         if (ret !== undefined) return ret;
     }
     Sk.abstr.binop_type_error(v, w, opname);
+};
+Sk.abstr.unary_op_ = function(v, opname)
+{
+    var ret;
+    var vop = Sk.abstr.uoNameToSlotFunc_(v, opname);
+    if (vop !== undefined)
+    {
+    if (vop.call) {
+            ret = vop.call(v);
+    } else {  // assume that vop is an __xxx__ type method
+        ret = Sk.misceval.callsim(vop,v); //  added to be like not-in-place... is this okay?
+        }
+        if (ret !== undefined) return ret;
+    }
+    Sk.abstr.unop_type_error(v, opname);
 };
 
 //
@@ -311,9 +346,9 @@ Sk.abstr.numberUnaryOp = function(v, op)
     if (op === "Not") return Sk.misceval.isTrue(v) ? Sk.builtin.bool.false$ : Sk.builtin.bool.true$;
     else if (v instanceof Sk.builtin.nmber || v instanceof Sk.builtin.bool) {
     var value = Sk.builtin.asnum$(v);
-    if (op === "USub") return new Sk.builtin.nmber(-value, value.skType);
-        if (op === "UAdd") return new Sk.builtin.nmber(value, value.skType);
-        if (op === "Invert") return new Sk.builtin.nmber(~value, value.skType);
+    if (op === "USub") return new Sk.builtin.nmber(-value, v.skType);
+        if (op === "UAdd") return new Sk.builtin.nmber(value, v.skType);
+        if (op === "Invert") return new Sk.builtin.nmber(~value, v.skType);
     }
     else
     {
@@ -322,8 +357,7 @@ Sk.abstr.numberUnaryOp = function(v, op)
         if (op === "Invert" && v.nb$invert) return v.nb$invert();
     }
 
-    var vtypename = Sk.abstr.typeName(v);
-    throw new Sk.builtin.TypeError("unsupported operand type for " + op + " '" + vtypename + "'");
+    return Sk.abstr.unary_op_(v, op);
 };
 goog.exportSymbol("Sk.abstr.numberUnaryOp", Sk.abstr.numberUnaryOp);
 
@@ -360,18 +394,54 @@ Sk.abstr.sequenceContains = function(seq, ob)
     return false;
 };
 
-Sk.abstr.sequenceGetItem = function(seq, i)
-{
-    goog.asserts.fail();
+Sk.abstr.sequenceConcat = function(seq1, seq2) {
+    if (seq1.sq$concat) {
+            return seq1.sq$concat(seq2)
+    }
+    var seq1typename = Sk.abstr.typeName(seq1);
+    throw new Sk.builtin.TypeError("'" + seq1typename + "' object can't be concatenated");
 };
 
-Sk.abstr.sequenceSetItem = function(seq, i, x)
-{
-    goog.asserts.fail();
+Sk.abstr.sequenceGetIndexOf = function(seq, ob) {
+    if (seq.index) {
+        return Sk.misceval.callsim(seq.index, seq, ob);
+    }
+
+    var seqtypename = Sk.abstr.typeName(seq);
+    if (seqtypename === "dict") {
+        throw new Sk.builtin.NotImplementedError("looking up dict key from value is not yet implemented (supported in Python 2.6)");
+    }
+    throw new Sk.builtin.TypeError("argument of type '" + seqtypename + "' is not iterable");
 };
 
-Sk.abstr.sequenceDelItem = function(seq, i)
-{
+Sk.abstr.sequenceGetCountOf = function(seq, ob) {
+    if (seq.count) {
+        return Sk.misceval.callsim(seq.count, seq, ob);
+    }
+
+    var seqtypename = Sk.abstr.typeName(seq);
+    throw new Sk.builtin.TypeError("argument of type '" + seqtypename + "' is not iterable");
+};
+
+Sk.abstr.sequenceGetItem = function(seq, i) {
+    if (seq.mp$subscript) {
+        return seq.mp$subscript(i);
+    }
+
+    var seqtypename = Sk.abstr.typeName(seq);
+    throw new Sk.builtin.TypeError("'" + seqtypename + "' object is unsubscriptable");
+};
+
+Sk.abstr.sequenceSetItem = function(seq, i, x) {
+    if (seq.mp$ass_subscript) {
+        return seq.mp$ass_subscript(i, x);
+    }
+
+    var seqtypename = Sk.abstr.typeName(seq);
+    throw new Sk.builtin.TypeError("'" + seqtypename + "' object does not support item assignment");
+};
+
+Sk.abstr.sequenceDelItem = function(seq, i) {
     if (seq.sq$del_item)
     {
         i = Sk.abstr.fixSeqIndex_(seq, i);
@@ -455,8 +525,44 @@ Sk.abstr.sequenceSetSlice = function(seq, i1, i2, x)
 //
 //
 
-Sk.abstr.objectDelItem = function(o, key)
-{
+Sk.abstr.objectAdd = function(a, b) {
+    if (a.nb$add) {
+        return a.nb$add(b);
+    }
+
+    var atypename = Sk.abstr.typeName(a);
+    var btypename = Sk.abstr.typeName(b);
+    throw new Sk.builtin.TypeError("unsupported operand type(s) for +: '" + atypename + "' and '" + btypename + "'");
+};
+
+// in Python 2.6, this behaviour seems to be defined for numbers and bools (converts bool to int)
+Sk.abstr.objectNegative = function(obj) {
+    var obj_asnum = Sk.builtin.asnum$(obj); // this will also convert bool type to int
+
+    if (typeof obj_asnum === 'number') {
+        return Sk.builtin.nmber.prototype['nb$negative'].call(obj);
+    }
+
+    var objtypename = Sk.abstr.typeName(obj);
+    throw new Sk.builtin.TypeError("bad operand type for unary -: '" + objtypename + "'");
+};
+
+// in Python 2.6, this behaviour seems to be defined for numbers and bools (converts bool to int)
+Sk.abstr.objectPositive = function(obj) {
+    var objtypename = Sk.abstr.typeName(obj);
+    var obj_asnum = Sk.builtin.asnum$(obj); // this will also convert bool type to int
+
+    if (objtypename === 'bool') {
+        return new Sk.builtin.nmber(obj_asnum, 'int');
+    }
+    if (typeof obj_asnum === 'number') {
+        return Sk.builtin.nmber.prototype['nb$positive'].call(obj);
+    }
+
+    throw new Sk.builtin.TypeError("bad operand type for unary +: '" + objtypename + "'");
+};
+
+Sk.abstr.objectDelItem = function(o, key) {
     if (o !== null)
     {
         if (o.mp$del_subscript) {
