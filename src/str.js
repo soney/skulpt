@@ -95,7 +95,11 @@ Sk.builtin.str.prototype.nb$add = Sk.builtin.str.prototype.sq$concat;
 Sk.builtin.str.prototype.nb$inplace_add = Sk.builtin.str.prototype.sq$concat;
 Sk.builtin.str.prototype.sq$repeat = function(n)
 {
-	n = Sk.builtin.asnum$(n);
+    if (!Sk.builtin.checkInt(n)) {
+        throw new Sk.builtin.TypeError("can't multiply sequence by non-int of type '" + Sk.abstr.typeName(n) +"'");
+    }
+
+    n = Sk.builtin.asnum$(n);
     var ret = "";
     for (var i = 0; i < n; ++i)
         ret += this.v;
@@ -146,49 +150,14 @@ Sk.builtin.str.prototype.tp$richcompare = function(other, op)
 {
     if (!(other instanceof Sk.builtin.str)) return undefined;
 
-    if (this === other)
-    {
-        switch (op)
-        {
-            case 'Eq': case 'LtE': case 'GtE':
-                return true;
-            case 'NotEq': case 'Lt': case 'Gt':
-                return false;
-        }
-    }
-    var lenA = this.v.length;
-    var lenB = other.v.length;
-    var minLength = Math.min(lenA, lenB);
-    var c = 0;
-    if (minLength > 0)
-    {
-        for (var i = 0; i < minLength; ++i)
-        {
-            if (this.v[i] != other.v[i])
-            {
-                c = this.v[i].charCodeAt(0) - other.v[i].charCodeAt(0);
-                break;
-            }
-        }
-    }
-    else
-    {
-        c = 0;
-    }
-
-    if (c == 0)
-    {
-        c = (lenA < lenB) ? -1 : (lenA > lenB) ? 1 : 0;
-    }
-
     switch (op)
     {
-        case 'Lt': return c < 0;
-        case 'LtE': return c <= 0;
-        case 'Eq': return c == 0;
-        case 'NotEq': return c != 0;
-        case 'Gt': return c > 0;
-        case 'GtE': return c >= 0;
+        case 'Lt': return this.v < other.v;
+        case 'LtE': return this.v <= other.v;
+        case 'Eq': return this.v === other.v;
+        case 'NotEq': return this.v !== other.v;
+        case 'Gt': return this.v > other.v;
+        case 'GtE': return this.v >= other.v;
         default:
             goog.asserts.fail();
     }
@@ -723,7 +692,11 @@ Sk.builtin.str.prototype.nb$remainder = function(rhs)
 
         var i;
         if (mappingKey === undefined || mappingKey === "" ) i = index++; // ff passes '' not undef for some reason
-
+				
+				if (precision === "") { // ff passes '' here aswell causing problems with G,g, etc.
+					precision = undefined;
+				}
+				
         var zeroPad = false;
         var leftAdjust = false;
         var blankBeforePositive = false;
@@ -873,7 +846,7 @@ Sk.builtin.str.prototype.nb$remainder = function(rhs)
 						precision = 6;
 					else if (conversionType === 'f' || conversionType === 'F')
 						precision = 7;
-                var result = (convValue)[convName](precision);
+					      var result = (convValue)[convName](precision);
                 if ('EFG'.indexOf(conversionType) !== -1) result = result.toUpperCase();
                 // todo; signs etc.
                 return handleWidth(['', result]);

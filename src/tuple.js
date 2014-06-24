@@ -85,14 +85,14 @@ Sk.builtin.tuple.prototype.tp$hash = function()
     var len = this.v.length;
     for (var i = 0; i < len; ++i)
     {
-        var y = Sk.builtin.hash(this.v[i]);
-        if (y === -1) return -1;
+        var y = Sk.builtin.hash(this.v[i]).v;
+        if (y === -1) return new Sk.builtin.nmber(-1, Sk.builtin.nmber.int$);
         x = (x ^ y) * mult;
         mult += 82520 + len + len;
     }
     x += 97531;
     if (x === -1) x = -2;
-    return x;
+    return new Sk.builtin.nmber(x | 0, Sk.builtin.nmber.int$);
 };
 
 Sk.builtin.tuple.prototype.sq$repeat = function(n)
@@ -191,6 +191,13 @@ Sk.builtin.tuple.prototype.tp$richcompare = function(w, op)
 
 Sk.builtin.tuple.prototype.sq$concat = function(other)
 {
+    if (other.__class__ != Sk.builtin.tuple)
+    {
+        var msg = 'can only concatenate tuple (not "';
+        msg += Sk.abstr.typeName(other) + '") to tuple';
+        throw new Sk.builtin.TypeError(msg);
+    }
+
     return new Sk.builtin.tuple(this.v.concat(other.v));
 };
 

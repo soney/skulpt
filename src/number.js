@@ -32,7 +32,7 @@ Sk.builtin.nmber = function(x, skType)	/* number is a reserved word */
 		if (skType !== undefined)
 			result.skType = skType;
 		if (skType === Sk.builtin.nmber.int$)
-			if (result.v > Sk.builtin.nmber.threshold$ || result.v < -Sk.builtin.nmber.threshold$)
+			if (result.v > Sk.builtin.nmber.threshold$ || result.v < -Sk.builtin.nmber.threshold$ - 1)
 				return new Sk.builtin.lng(x);
 		return result;
 	} else if (x instanceof Sk.builtin.lng) {
@@ -62,14 +62,16 @@ Sk.builtin.nmber.prototype.tp$index = function()
 
 Sk.builtin.nmber.prototype.tp$hash = function()
 {
-    return this.v;
+    //the hash of all numbers should be an int and since javascript doesn't really 
+    //care every number can be an int.
+    return new Sk.builtin.nmber(this.v, Sk.builtin.nmber.int$);
 };
 
 Sk.builtin.nmber.prototype.tp$name = "number";
 Sk.builtin.nmber.prototype.ob$type = Sk.builtin.type.makeIntoTypeObj('number', Sk.builtin.nmber);
 
 //	Threshold to determine when types should be converted to long
-Sk.builtin.nmber.threshold$ = Math.pow(2, 53);
+Sk.builtin.nmber.threshold$ = Math.pow(2, 53) - 1;
 Sk.builtin.nmber.float$ = "float";
 Sk.builtin.nmber.int$ = "int";
 
@@ -135,6 +137,11 @@ Sk.builtin.nmber.prototype.nb$add = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		result = new Sk.builtin.nmber(this.v + other.v, undefined);
@@ -171,6 +178,12 @@ Sk.builtin.nmber.prototype.nb$subtract = function(other)
 	if (typeof other === "number") {
 		other = new Sk.builtin.nmber(other, undefined);
 	}
+	else if (other instanceof Sk.builtin.bool) {
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+	}
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		result = new Sk.builtin.nmber(this.v - other.v, undefined);
@@ -205,6 +218,11 @@ Sk.builtin.nmber.prototype.nb$multiply = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		result = new Sk.builtin.nmber(this.v * other.v, undefined);
@@ -239,6 +257,11 @@ Sk.builtin.nmber.prototype.nb$divide = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		if (other.v == 0)
@@ -306,6 +329,11 @@ Sk.builtin.nmber.prototype.nb$floor_divide = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (this.v === Infinity || this.v === -Infinity)
 		return new Sk.builtin.nmber(NaN, Sk.builtin.nmber.float$);
@@ -361,6 +389,11 @@ Sk.builtin.nmber.prototype.nb$remainder = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		if (other.v == 0)
@@ -439,6 +472,11 @@ Sk.builtin.nmber.prototype.nb$power = function(other)
 
 	if (typeof other === "number")
 		other = new Sk.builtin.nmber(other, undefined);
+	else if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
+
+	if (other instanceof Sk.builtin.bool)
+		other = new Sk.builtin.nmber(Sk.builtin.asnum$(other), undefined);
 
 	if (other instanceof Sk.builtin.nmber) {
 		if (this.v < 0 && other.v % 1 != 0)
