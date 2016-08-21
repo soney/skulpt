@@ -38,7 +38,7 @@ class TestCaseGui(TestCase):
                  func()
                  self.tearDown()
              except Exception as e:
-                 self.appendResult('Error', None, None, e)
+                 self.appendResult('Error', None, None, str(e).split('on line')[0])
                  self.numFailed += 1
                  self.showSummary()
 
@@ -113,6 +113,16 @@ class TestCaseGui(TestCase):
              inp.innerHTML = param
          inp.setCSS('text-align','center')
          row.appendChild(inp)
+
+         if trimActual or trimExpected:
+             expandbutton = document.createElement('button')
+             expandbutton.innerHTML = 'Expand Differences'
+             expandmsg = "Actual: " + actual + "\nExpected: " + expected
+             expandbutton.setAttribute('value', expandmsg)
+             expandbutton.setAttribute('onclick', 'alert(this.value)')
+             expandbutton.setAttribute('class', 'btn btn-info')
+             row.appendChild(expandbutton)
+
          self.resTable.appendChild(row)
 
 
