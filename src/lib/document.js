@@ -47,12 +47,30 @@ var $builtinmodule = function (name) {
         return new Sk.builtin.list(reslist);
     });
 
+    mod.getCurrentEditorValue = new Sk.builtin.func(function () {
+        if (Sk.divid !== undefined && edList !== undefined) {
+            return new Sk.builtin.str(edList[Sk.divid].editor.getValue())
+        }
+        else {
+            throw new Sk.builtin.AttributeError("Can't find editor for this div");
+        }
+    })
+
     mod.currentDiv = new Sk.builtin.func(function () {
         if (Sk.divid !== undefined) {
             return new Sk.builtin.str(Sk.divid)
         }
         else {
             throw new Sk.builtin.AttributeError("There is no value set for divid");
+        }
+    })
+
+    mod.currentCourse = new Sk.builtin.func(function () {
+        if (eBookConfig !== undefined) {
+            return new Sk.builtin.str(eBookConfig.course)
+        }
+        else {
+            throw new Sk.builtin.AttributeError("There is no course");
         }
     })
 

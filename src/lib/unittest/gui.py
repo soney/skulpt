@@ -1,5 +1,8 @@
 import document
 from unittest import TestCase
+from urllib.request import urlopen
+from time import sleep
+
 
 class TestCaseGui(TestCase):
      def __init__(self):
@@ -40,7 +43,15 @@ class TestCaseGui(TestCase):
              except Exception as e:
                  self.appendResult('Error', None, None, str(e).split('on line')[0])
                  self.numFailed += 1
-                 self.showSummary()
+         self.showSummary()
+
+     def getOutput(self):
+         sleep(.2)
+         output = document.getElementById(self.divid+'_stdout')
+         return output.innerText
+
+     def getEditorText(self):
+         return document.getCurrentEditorValue()
 
      def appendResult(self,res,actual,expected,param):
          trimActual = False
@@ -131,3 +142,6 @@ class TestCaseGui(TestCase):
          pTag = document.createElement('p')
          pTag.innerHTML = "You passed: " + str(pct) + "% of the tests"
          self.resdiv.appendChild(pTag)
+         pctcorrect = "percent:" + str(pct) + ":passed:" + str(self.numPassed) + ":failed:" + str(self.numFailed)
+         course = document.currentCourse()
+         urlopen("/runestone/ajax/hsblog","event=unittest&div_id="+self.divid+"&act="+pctcorrect+"&course="+course)
