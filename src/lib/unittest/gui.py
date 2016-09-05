@@ -128,7 +128,7 @@ class TestCaseGui(TestCase):
          if trimActual or trimExpected:
              expandbutton = document.createElement('button')
              expandbutton.innerHTML = 'Expand Differences'
-             expandmsg = "Actual: " + actual + "\nExpected: " + expected
+             expandmsg = "Actual: " + str(actual) + "\nExpected: " + str(expected)
              expandbutton.setAttribute('value', expandmsg)
              expandbutton.setAttribute('onclick', 'alert(this.value)')
              expandbutton.setAttribute('class', 'btn btn-info')
