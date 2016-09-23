@@ -114,7 +114,6 @@ var $builtinmodule = function (name) {
         } else {
           xmlhttp.open("POST", url.v, false);
           xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-          xmlhttp.setRequestHeader("Content-length", data.v.length);
           xmlhttp.send(data.v);
         }
 
