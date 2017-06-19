@@ -2009,9 +2009,10 @@ Compiler.prototype.cclass = function (s) {
 
     scopename = this.enterScope(s.name, s, s.lineno);
     entryBlock = this.newBlock("class entry");
-
+    
     this.u.prefixCode = "var " + scopename + "=(function $" + s.name.v + "$class_outer($globals,$locals,$rest){var $gbl=$globals,$loc=$locals;";
     this.u.switchCode += "(function $" + s.name.v + "$_closure(){";
+    this.u.switchCode += "if (typeof $cell === undefined) { var $cell = {}; }";
     this.u.switchCode += "var $blk=" + entryBlock + ",$exc=[],$ret=undefined,$postfinally=undefined,$currLineNo=undefined,$currColNo=undefined;"
     if (Sk.execLimit !== null) {
         this.u.switchCode += "if (typeof Sk.execStart === 'undefined') {Sk.execStart = Date.now()}";
@@ -2171,11 +2172,7 @@ Compiler.prototype.vstmt = function (s) {
             out("debugger;");
             break;
         default:
-<<<<<<< HEAD
-            goog.asserts.fail("unhandled case in vstmt: " + s.constructor.name);
-=======
             goog.asserts.fail("unhandled case in vstmt: " + JSON.stringify(s));
->>>>>>> WIP
     }
 };
 
