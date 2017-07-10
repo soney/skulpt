@@ -237,6 +237,7 @@ Sk.doOneTimeInitialization = function () {
             break;
         }
 
+        proto[name].co_kwargs = null;
         proto[name] = new Sk.builtin.func(proto[name]);
     }
 
