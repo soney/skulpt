@@ -180,6 +180,7 @@ Sk.builtin.type = function (name, bases, dict) {
 
         if (bases.v.length === 0 && Sk.python3) {
             // new style class, inherits from object by default
+            bases.v.push(Sk.builtin.object);
             Sk.abstr.setUpInheritance(_name, klass, Sk.builtin.object);
         }
 
