@@ -1,12 +1,12 @@
 __author__ = 'bmiller'
 
-def testEqual(actual, expected):
-    if type(expected) == type(1):
+def testEqual(actual, expected, places=5):
+    if isinstance(expected,int):
         if actual == expected:
             print('Pass')
             return True
-    elif type(expected) == type(1.11):
-        if abs(actual-expected) < 0.00001:
+    elif isinstance(expected,float):
+        if abs(actual-expected) < 10**(-places):
             print('Pass')
             return True
     else:
