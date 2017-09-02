@@ -138,7 +138,7 @@ class TestCaseGui(TestCase):
 
 
      def showSummary(self):
-         pct = self.numPassed / (self.numPassed+self.numFailed) * 100
+         pct = float(self.numPassed) / (self.numPassed+self.numFailed) * 100
          pTag = document.createElement('p')
          pTag.innerHTML = "You passed: " + str(pct) + "% of the tests"
          self.resdiv.appendChild(pTag)
