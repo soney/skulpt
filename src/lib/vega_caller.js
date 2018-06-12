@@ -13,7 +13,8 @@ var $builtinmodule = function (name) {
     mod.render_graph = new Sk.builtin.func(function (vegaspec) {
         Sk.builtin.pyCheckArgs("render_graph", arguments, 1, 1);
         // set actions to false to remove links to editor etc.
-        vegaEmbed("#foo", Sk.ffi.remapToJs(vegaspec), {actions: true})
+        let divid = '#' + Sk.divid + '_canvas'
+        vegaEmbed(divid, Sk.ffi.remapToJs(vegaspec), {actions: true})
     });
 
     return mod;
