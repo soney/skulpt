@@ -10,7 +10,6 @@ class Chart:
     def __init__(self, data):
         if isinstance(data, dict):
             self.data = Data(**data)
-            print(self.data)
         else:
             self.data = data
 
