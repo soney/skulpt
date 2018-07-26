@@ -235,8 +235,8 @@ def test(debug_mode=False, p3=False):
             jscscmd = "jscs {1} --reporter=inline".format(' '.join(files))
         else:
             folders = ' '.join([ d + "/*.js" for d in base_dirs ])
-            jshintcmd = "jshint " + folders
-            jscscmd = "jscs " + folders + " --reporter=inline"
+            jshintcmd = "npx jshint " + folders
+            jscscmd = "npx jscs " + folders + " --reporter=inline"
 
         ret2 = os.system(jshintcmd)
         print "Running JSCS"
@@ -944,7 +944,7 @@ def regenruntests(togen="{0}/run/*.py".format(TEST_DIR)):
 
 def doc():
     print "Building Documentation in docs/ProgMan"
-    ret = os.system("jsdoc -c jsdoc.json HACKING.md")
+    ret = os.system("npx jsdoc -c jsdoc.json HACKING.md")
     if ret != 0:
         print "Build of docs failed.  Is jsdoc installed?"
 
