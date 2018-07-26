@@ -32,14 +32,14 @@ the more I think about it the more I wonder...
 <div id="example1">
 <form>
 <textarea edit_id="eta_5" id="example1_code" cols="60" rows="10">
-from vega import Chart
+from altair import Chart
 
 Chart({'a':list("abc"), 'b':[1,2,3], 'c':['r','g','b']}).mark_bar().encode(x='a:N',y='b',color='c:O')
 </textarea>
 <button onclick="runit('example1')" type="button">Run</button>
 </form>
 
-<div id="example1_canvas">
+<div id="example1_graphics">
 </div>
 
 
