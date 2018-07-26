@@ -14,7 +14,11 @@ var $builtinmodule = function (name) {
         Sk.builtin.pyCheckArgs("render_graph", arguments, 1, 1);
         // set actions to false to remove links to editor etc.
         let divid = '#' + Sk.divid + '_graphics'
-        vegaEmbed(divid, Sk.ffi.remapToJs(vegaspec), {actions: true})
+        try {
+            vegaEmbed(divid, Sk.ffi.remapToJs(vegaspec), {actions: true})
+    } catch(e) {
+        throw new Sk.builtin.Exception("Error in graph specification unable to render the graph\n" + e.message);
+    }
     });
 
     return mod;
