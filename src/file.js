@@ -217,9 +217,7 @@ Sk.builtin.file.prototype["write"] = new Sk.builtin.func(function write(self, ps
         if (self.fileno === 1) {
             Sk.output(contents);
         } else {
-            Sk.filewriter(contents);
-            // call Sk.filewriter for non-stdout files
-            
+            self.pos$ = self.pos$ + Sk.filewriter(contents, self.name, self.pos$);
         }
     } else {
         goog.asserts.fail();
