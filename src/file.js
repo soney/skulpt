@@ -23,6 +23,10 @@ Sk.builtin.file = function (name, mode, buffering) {
         this.fileno = 0;
     } else if (this.name === "/dev/stderr") {
         this.fileno = 2;
+    } else if (Sk.ffi.remapToJs(this.mode) === "w") {
+        //open a file for writing
+        this.fileno = Sk.builtin.file.currentFileno++;
+        this.currentLine = 0;
     } else {
         this.fileno = 11;
         this.data$ = Sk.read(name.v);
@@ -41,6 +45,8 @@ Sk.builtin.file = function (name, mode, buffering) {
 
     return this;
 };
+
+Sk.builtin.file.currentFileno = 12;
 
 Sk.abstr.setUpInheritance("file", Sk.builtin.file, Sk.builtin.object);
 
@@ -204,13 +210,16 @@ Sk.builtin.file.prototype["truncate"] = new Sk.builtin.func(function truncate(se
     goog.asserts.fail();
 });
 
-Sk.builtin.file.prototype["write"] = new Sk.builtin.func(function write(self, str) {
+Sk.builtin.file.prototype["write"] = new Sk.builtin.func(function write(self, pstr) {
     var mode = Sk.ffi.remapToJs(self.mode);
+    var contents = Sk.ffi.remapToJs(pstr);
     if (mode === "w" || mode === "wb" || mode === "a" || mode === "ab") {
         if (self.fileno === 1) {
-            Sk.output(Sk.ffi.remapToJs(str));
+            Sk.output(contents);
         } else {
-            goog.asserts.fail();
+            Sk.filewriter(contents);
+            // call Sk.filewriter for non-stdout files
+            
         }
     } else {
         goog.asserts.fail();

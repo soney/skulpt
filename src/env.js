@@ -24,6 +24,9 @@ Sk.configure = function (options) {
     Sk.output = options["output"] || Sk.output;
     goog.asserts.assert(typeof Sk.output === "function");
 
+    Sk.filewriter = options["filewriter"] || Sk.filewriter;
+    goog.asserts.assert(typeof Sk.filewriter === "function");
+
     Sk.debugout = options["debugout"] || Sk.debugout;
     goog.asserts.assert(typeof Sk.debugout === "function");
 
@@ -165,12 +168,15 @@ Sk.debugout = function (args) {
     // set up some sane defaults based on availability
     if (goog.global["write"] !== undefined) {
         Sk.output = goog.global["write"];
+        Sk.filewriter = goog.global["write"];
     } else if (goog.global["console"] !== undefined && goog.global["console"]["log"] !== undefined) {
         Sk.output = function (x) {
             goog.global["console"]["log"](x);
         };
+        Sk.filewriter = Sk.output;
     } else if (goog.global["print"] !== undefined) {
         Sk.output = goog.global["print"];
+        Sk.filewriter = Sk.output;
     }
     if (goog.global["print"] !== undefined) {
         Sk.debugout = goog.global["print"];
