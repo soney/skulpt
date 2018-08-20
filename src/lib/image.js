@@ -97,7 +97,7 @@ $builtinmodule = function (name) {
             }
         };
 
-        var setdelay = new Sk.builtin.func(function (self, delay, interval) {
+        var setdelay = function (self, delay, interval) {
             var i;
             Sk.builtin.pyCheckArgs("setdelay", arguments, 2, 3);
             self.delay = Sk.ffi.remapToJs(delay);
@@ -107,7 +107,7 @@ $builtinmodule = function (name) {
             } else {
                 self.updateInterval = i;
             }
-        });
+        };
 
         // alias the function with pep8 compliant snake_case and legacy camelCase
         $loc.set_delay = new Sk.builtin.func(setdelay);
