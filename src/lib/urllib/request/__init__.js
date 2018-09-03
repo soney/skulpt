@@ -105,24 +105,56 @@ var $builtinmodule = function (name) {
      * object; it just makes the request through jQuery.ajax and then
      * constructs a Response.
      */
-    request.urlopen = new Sk.builtin.func(function (url, data, timeout) {
-        var prom = new Promise(function(resolve, reject) {
-            var xmlhttp = new XMLHttpRequest();
-
-            xmlhttp.addEventListener("loadend", function (e) {
-                resolve(Sk.misceval.callsim(request.Response, xmlhttp));
-            });
-
-            if (!data) {
-                xmlhttp.open("GET", url.v);
-                xmlhttp.send(null);
-            } else {
-                xmlhttp.open("POST", url.v);
-                xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-                xmlhttp.send(data.v);
+    var isJsonPSite = function (url)  {
+        var i;
+        if (! Sk.jsonpSites) {
+            return false;
+        }
+        for (i=0; i<Sk.jsonpSites.length; i++) {
+            if (url.startsWith(Sk.jsonpSites[i])) {
+                return true;
             }
-        });
+        }
+        return false;
+        
+    }
+    request.urlopen = new Sk.builtin.func(function (url, data, timeout) {
+        var prom;
+        if (isJsonPSite(url.v)) {
+            prom = new Promise(function (resolve, reject) {
+                var s = document.createElement('script');
+                s.src = url.v+'&callback=Sk.jsonpcallback';
+                s.onerror = function(e) {
+                    reject("An error occured getting the data")
+                }; 
+                Sk.jsonpcallback = function(data) {
+                    var x = {responseText : JSON.stringify(data)};
+                    resolve(Sk.misceval.callsim(request.Response, x));
+                };
+                try {
+                    document.body.appendChild(s);
+                } catch(e) {
+                    console.log("caught error in urlopen" + e);
+                }  
+            } ); 
+        } else {
+            prom = new Promise(function(resolve, reject) {
+                var xmlhttp = new XMLHttpRequest();
 
+                xmlhttp.addEventListener("loadend", function (e) {
+                    resolve(Sk.misceval.callsim(request.Response, xmlhttp));
+                });
+
+                if (!data) {
+                    xmlhttp.open("GET", url.v);
+                    xmlhttp.send(null);
+                } else {
+                    xmlhttp.open("POST", url.v);
+                    xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+                    xmlhttp.send(data.v);
+                }
+            });
+        }
         var susp = new Sk.misceval.Suspension();
 
         susp.resume = function() {
