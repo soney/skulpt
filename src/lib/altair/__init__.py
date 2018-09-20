@@ -7,31 +7,36 @@ except:
 
 class Chart:
     # TODO allow data to be specified as a URL
-    def __init__(self, data):
+    def __init__(self, data, title=None):
+        self.title=title
         if isinstance(data, dict):
             self.data = Data(**data)
         else:
             self.data = data
 
     def mark_bar(self):
-        self.mark = BarChart(self.data)
+        self.mark = BarChart(self.data, title=self.title)
         return self.mark
 
     def mark_point(self):
-        self.mark = ScatterChart(self.data)
+        self.mark = ScatterChart(self.data, title=self.title)
         return self.mark
 
     def mark_line(self):
-        self.mark = LineChart(self.data)
+        self.mark = LineChart(self.data, title=self.title)
         return self.mark
 
 class Mark:
 
-    def __init__(self, data):
+    def __init__(self, data, title=None):
         self.data = data
+        self.title = title
         self.json = {}
         self.json["$schema"] = "https://vega.github.io/schema/vega-lite/v2.json"
         self.json['data'] = {}
+        if self.title:
+            self.json["title"] = self.title
+
         # Now convert the data into a json format
         self.json['data'] = {"values": data.vals}
 
@@ -59,27 +64,30 @@ class Mark:
             self.encoding['size'] = dict(type=tp, field=field)
             
         self.json['encoding'] = self.encoding
+        return self
+
+    def display(self):
         render_graph(self.json)
 
 class BarChart(Mark):
-    def __init__(self, data):
+    def __init__(self, data, title=None):
         # we will assume that the data is structured like you would make a dataframe.
         # The keys are the name of the columns and the values are lists
 
-        Mark.__init__(self, data)        
+        Mark.__init__(self, data, title=title)        
         self.json['mark'] = 'bar'
 
 class ScatterChart(Mark):
 
-    def __init__(self, data):
-        Mark.__init__(self, data)
+    def __init__(self, data, title=None):
+        Mark.__init__(self, data, title=title)
         self.json['mark'] = 'point'
 
 
 class LineChart(Mark):
 
-    def __init__(self, data):
-        Mark.__init__(self, data)
+    def __init__(self, data, title=None):
+        Mark.__init__(self, data, title=title)
         self.json['mark'] = 'line'
 
 
@@ -118,6 +126,12 @@ class Axis:
 
         return json
 
+
+class X(Axis):
+    pass
+
+class Y(Axis):
+    pass
 
 class Data:
     def __init__(self, **kwargs):
