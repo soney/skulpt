@@ -1731,7 +1731,7 @@ function generateTurtleModule(_target) {
         context.beginPath();
         context.moveTo(this.x, this.y);
         size = size * Math.min(Math.abs(xScale),Math.abs(yScale));
-        context.arc(this.x, this.y, size, 0, Turtle.RADIANS);
+        context.arc(this.x, this.y, size/2, 0, Turtle.RADIANS);
         context.closePath();
         context.fillStyle = color || this.color;
         context.fill();
