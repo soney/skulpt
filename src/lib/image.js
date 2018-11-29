@@ -258,7 +258,7 @@ $builtinmodule = function (name) {
 
         var getheight = function (self) {
             Sk.builtin.pyCheckArgs("getheight", arguments, 1, 1);
-            return new Sk.builtin.int_(self.image.height);
+            return new Sk.builtin.int_(self.height);
         };
 
         // alias the function with pep8 compliant snake_case and legacy camelCase
@@ -268,7 +268,7 @@ $builtinmodule = function (name) {
 
         var getwidth = function (self, titlestring) {
             Sk.builtin.pyCheckArgs("getwidth", arguments, 1, 1);
-            return new Sk.builtin.int_(self.image.width);
+            return new Sk.builtin.int_(self.width);
         };
 
         // alias the function with pep8 compliant snake_case and legacy camelCase
@@ -293,7 +293,7 @@ $builtinmodule = function (name) {
                     uly = Sk.builtin.asnum$(uly);
                     can = Sk.misceval.callsim(win.getWin, win);
                     ctx = can.getContext("2d");
-                    if (!ulx) {
+                    if (ulx === undefined) {
                         ulx = 0;
                         uly = 0;
                     }
