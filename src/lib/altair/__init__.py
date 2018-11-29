@@ -66,6 +66,22 @@ class Mark:
         self.json['encoding'] = self.encoding
         return self
 
+    def interactive(self):
+        iconfig = {
+            "selector002": {
+            "type": "interval",
+            "bind": "scales",
+            "encodings": ["x", "y"],
+            "on": "[mousedown, window:mouseup] > window:mousemove!",
+            "translate": "[mousedown, window:mouseup] > window:mousemove!",
+            "zoom": "wheel!",
+            "mark": {"fill": "#333", "fillOpacity": 0.125, "stroke": "white"},
+            "resolve": "global"
+            }
+        }
+        self.json['selection'] = iconfig
+        return self
+
     def display(self):
         render_graph(self.json)
 
