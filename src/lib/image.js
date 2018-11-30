@@ -275,6 +275,26 @@ $builtinmodule = function (name) {
         $loc.get_width = new Sk.builtin.func(getwidth);
         $loc.getWidth = new Sk.builtin.func(getwidth);
 
+        // allow direct access to height/width properties
+        $loc.__getattr__ = new Sk.builtin.func(function (self, key) {
+            key = Sk.ffi.remapToJs(key);
+                if (key === "height") {
+                    return Sk.builtin.assk$(self.height);
+                }
+                else if (key === "width") {
+                    return Sk.builtin.assk$(self.width);
+                }
+            });
+
+        // height and width can only be set on creation
+        $loc.__setattr__ = new Sk.builtin.func(function (self, key, value) {
+            key = Sk.ffi.remapToJs(key);
+            if (key === 'height' || key === 'width') {
+                throw new Sk.builtin.Exception("Cannot change height or width they can only be set on creation")
+            } else {
+                throw new Sk.builtin.Exception("Unknown attribute: " + key)
+            }
+        });
 
         $loc.draw = new Sk.builtin.func(function (self, win, ulx, uly) {
             var susp;
@@ -420,6 +440,28 @@ $builtinmodule = function (name) {
         // alias the function with pep8 compliant snake_case and legacy camelCase
         $loc.set_blue = new Sk.builtin.func(setblue);
         $loc.setBlue = new Sk.builtin.func(setblue);
+
+        $loc.__getattr__ = new Sk.builtin.func(function (self, key) {
+            key = Sk.ffi.remapToJs(key);
+                if (key === "red") {
+                    return Sk.builtin.assk$(self.red);
+                }
+                else if (key === "green") {
+                    return Sk.builtin.assk$(self.green);
+                }
+                else if (key === "blue") {
+                    return Sk.builtin.assk$(self.blue);
+                }
+            });
+
+    
+        $loc.__setattr__ = new Sk.builtin.func(function (self, key, value) {
+            key = Sk.ffi.remapToJs(key);
+            if (key === 'red' || key === 'green' || key === 'blue') {
+                self[key] = Sk.builtin.asnum$(value)
+            }
+        });
+
 
         var setx = function (self, x) {
             Sk.builtin.pyCheckArgs("setx", arguments, 2, 2);
