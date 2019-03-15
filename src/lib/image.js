@@ -164,7 +164,7 @@ $builtinmodule = function (name) {
             return new Sk.builtin.list(arr);
         });
 
-        $loc.getPixel = new Sk.builtin.func(function (self, x, y) {
+        var getpixel = function (self, x, y) {
             var red;
             var blue;
             var green;
@@ -485,7 +485,7 @@ $builtinmodule = function (name) {
                 }
             });
 
-    
+
         $loc.__setattr__ = new Sk.builtin.func(function (self, key, value) {
             key = Sk.ffi.remapToJs(key);
             if (key === 'red' || key === 'green' || key === 'blue') {
