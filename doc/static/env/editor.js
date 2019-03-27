@@ -3,14 +3,17 @@ $(document).ready(function () {
     var outf = function (text) {
         output.text(output.text() + text);
     };
-    
+
     var jsoutf = function (text) {
         window.js_output.setValue(text);
     }
-    
+
     var keymap = {
         "Ctrl-Enter" : function (editor) {
-            Sk.configure({output: outf, read: builtinRead});
+            Sk.configure({output: outf,
+                read: builtinRead,
+                __future__: Sk.python3
+            });
             Sk.canvas = "mycanvas";
             if (editor.getValue().indexOf('turtle') > -1 ) {
                 $('#mycanvas').show()
@@ -58,7 +61,7 @@ $(document).ready(function () {
         extraKeys: keymap,
         parserConfig: {'pythonVersion': 2, 'strictErrors': true}
     });
-    
+
     var js_output = CodeMirror.fromTextArea(document.getElementById('codeoutput'), {
        parserfile: ["parsejavascript.js"],
         autofocus: false,
@@ -71,8 +74,8 @@ $(document).ready(function () {
         fontSize: "9pt",
         autoMatchParens: true,
         extraKeys: keymap,
-    });    
-    
+    });
+
     window.code_editor = editor;
     window.js_output = js_output;
     window.jsoutf = jsoutf;
