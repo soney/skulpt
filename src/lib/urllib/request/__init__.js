@@ -116,7 +116,7 @@ var $builtinmodule = function (name) {
             }
         }
         return false;
-        
+
     }
     request.urlopen = new Sk.builtin.func(function (url, data, timeout) {
         var prom;
@@ -126,23 +126,23 @@ var $builtinmodule = function (name) {
                 s.src = url.v+'&callback=Sk.jsonpcallback';
                 s.onerror = function(e) {
                     reject("An error occured getting the data")
-                }; 
+                };
                 Sk.jsonpcallback = function(data) {
                     var x = {responseText : JSON.stringify(data)};
-                    resolve(Sk.misceval.callsim(request.Response, x));
+                    resolve(Sk.misceval.callsimArray(request.Response, [x]));
                 };
                 try {
                     document.body.appendChild(s);
                 } catch(e) {
                     console.log("caught error in urlopen" + e);
-                }  
-            } ); 
+                }
+            } );
         } else {
             prom = new Promise(function(resolve, reject) {
                 var xmlhttp = new XMLHttpRequest();
 
                 xmlhttp.addEventListener("loadend", function (e) {
-                    resolve(Sk.misceval.callsim(request.Response, xmlhttp));
+                    resolve(Sk.misceval.callsimArray(request.Response, [xmlhttp]));
                 });
 
                 if (!data) {
