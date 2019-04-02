@@ -30,20 +30,7 @@ Sk.builtin.file = function (name, mode, buffering) {
     } else {
         if (Sk.inBrowser) {  // todo:  Maybe provide a replaceable function for non-import files
             this.fileno = 10;
-            elem = document.getElementById(name.v);
-            if (elem == null) {
-                if (mode.v == "w" || mode.v == "a") {
-                    this.data$ = "";
-                } else {
-                    throw new Sk.builtin.IOError("[Errno 2] No such file or directory: '" + name.v + "'");
-                }
-            } else {
-                if (elem.nodeName.toLowerCase() == "textarea") {
-                    this.data$ = elem.value;
-                } else {
-                    this.data$ = elem.textContent;
-                }
-            }
+            this.data$ = Sk.read(name.v);
         } else {
             this.fileno = 11;
             this.data$ = Sk.read(name.v);
