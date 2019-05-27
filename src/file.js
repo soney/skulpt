@@ -221,7 +221,7 @@ Sk.builtin.file.prototype["tell"] = new Sk.builtin.func(function tell(self) {
 });
 
 Sk.builtin.file.prototype["truncate"] = new Sk.builtin.func(function truncate(self, size) {
-    goog.asserts.fail();
+    Sk.asserts.fail();
 });
 
 Sk.builtin.file.prototype["write"] = new Sk.builtin.func(function write(self, pstr) {
@@ -242,11 +242,11 @@ Sk.builtin.file.prototype["write"] = new Sk.builtin.func(function write(self, ps
             if (self.fileno === 1) {
                 Sk.output(Sk.ffi.remapToJs(pstr));
             } else {
-                goog.asserts.fail();
+                Sk.asserts.fail();
             }
         }
     }
 });
 
 
-goog.exportSymbol("Sk.builtin.file", Sk.builtin.file);
+Sk.exportSymbol("Sk.builtin.file", Sk.builtin.file);
