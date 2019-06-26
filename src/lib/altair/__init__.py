@@ -24,23 +24,41 @@ class Chart:
             self.json["title"] = self.title
 
         self.json['data'] = {"values": self.data.vals}
+        self.is_composite = False
 
-    def mark_bar(self):
-        self.mark = 'bar'
-        self.json['mark'] = 'bar'
+    # mark can be a simple string or a dictionary
+    # "mark": {"color": "green", "opacity": 0.2, "type": "rect"}
+
+    def mark_json(self, mark_type, **kwargs):
+        if kwargs:
+            self.json['mark'] = {}
+            self.json['mark']['type'] = mark_type
+            self.json['mark'].update(kwargs)
+        else:
+            self.json['mark'] = mark_type
+
         return self
 
-    def mark_point(self):
-        self.mark = 'point'
-        self.json['mark'] = 'point'
-        return self
+    def mark_bar(self, **kwargs):
+        return self.mark_json('bar', **kwargs)
 
-    def mark_line(self):
-        self.mark = 'line'
-        self.json['mark'] = 'line'
-        return self
+    def mark_point(self, **kwargs):
+        return self.mark_json('point', **kwargs)
 
-    def encode(self, x='', y='', color='', size=''):
+    def mark_line(self, **kwargs):
+        return self.mark_json('line', **kwargs)
+
+    def mark_rect(self, **kwargs):
+        return self.mark_json('rect', **kwargs)
+
+    def mark_area(self, **kwargs):
+        return self.mark_json('area', **kwargs)
+
+    def mark_tick(self, **kwargs):
+        return self.mark_json('tick', **kwargs)
+
+
+    def encode(self, x='', y='', color='', size='', tooltip=''):
         self.encoding = {}
         if x:
             if isinstance(x,Axis):
@@ -62,6 +80,10 @@ class Chart:
         if size:
             field, tp = _get_name_type(size)
             self.encoding['size'] = dict(type=tp, field=field)
+
+        if tooltip:
+            field, tp = _get_name_type(tooltip)
+            self.encoding['tooltip'] = dict(type=tp, field=field)
 
         self.json['encoding'] = self.encoding
         return self
@@ -87,23 +109,36 @@ class Chart:
         render_graph(self.json)
 
     def __add__(self, other):
-        self.json['layer'] = []
-        self.json['datasets'] = {}
-        temp = {}
-        temp['data'] = {"name": self.dsname }
-        self.json['datasets'][self.dsname] = self.json['data']['values']
-        del self.json['data']
-        temp['encoding'] = self.json['encoding']
-        del self.json['encoding']
-        temp['mark'] = self.json['mark']
-        del self.json['mark']
-        self.json['layer'].append(temp)
+        return self.add_layer(other, 'layer')
+
+    def __and__(self, other):
+        return self.add_layer(other, 'vconcat')
+
+    def __or__(self,other):
+        return self.add_layer(other, 'hconcat')
+
+    def add_layer(self, other, lname):
+        # multle layers are added by concatenating the new element to the
+        # existing layer.  If the layer does not exist then initialize
+        # it from self.
+        if lname not in self.json:
+            self.json[lname] = []
+            self.json['datasets'] = {}
+            temp = {}
+            temp['data'] = {"name": self.dsname }
+            self.json['datasets'][self.dsname] = self.json['data']['values']
+            del self.json['data']
+            temp['encoding'] = self.json['encoding']
+            del self.json['encoding']
+            temp['mark'] = self.json['mark']
+            del self.json['mark']
+            self.json[lname].append(temp)
         temp = {}
         self.json['datasets'][other.dsname] = other.json['data']['values']
         temp['data'] = {"name": other.dsname}
         temp['encoding'] = other.json['encoding']
         temp['mark'] = other.json['mark']
-        self.json['layer'].append(temp)
+        self.json[lname].append(temp)
         return self
 
 #   "datasets": {
@@ -218,7 +253,7 @@ if __name__ == '__main__':
     d = Data(a=[3,4,5], b=[1,2,3], c=['r','g','b'])
     print(d)
     print(type(Chart({'a':list("abc"), 'b':[1,2,3]}).mark_bar().encode(x='a:N',y='b')))
-    aa = Chart(Data(a=[3,4,5], b=[1,2,3], c=['r','g','b'])).mark_point().encode(x='b',y='a',color='c:O')
+    aa = Chart(Data(a=[3,4,5], b=[1,2,3], c=['r','g','b'])).mark_point(color='red').encode(x='b',y='a',color='c:O')
     bb = Chart(Data(a=[1,2,3], b=[4,5,6], c=['r','g','b'])).mark_line().encode(x='b',y='a',color='c:O')
     print((aa+bb).display())
     #Chart(Data(a=[1,2,3,2,2,4,5,5,6,7,8,8,8,8,8,9,0,0])).mark_bar().encode(Axis('a:Q', bin=True),y='count()')
