@@ -28,9 +28,9 @@ class TestCaseGui(TestCase):
             self.is_timed = True
         else:
             self.is_timed = False
-
-        if not self.is_timed:
-            self.resdiv.appendChild(self.resTable)
+        self.resdiv.appendChild(self.resTable)
+        if self.is_timed:
+            self.resdiv.setCSS('display','none')
 
         headers = ["Result", "Actual Value", "Expected Value", "Notes"]
         row = document.createElement("tr")
