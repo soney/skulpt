@@ -47,8 +47,30 @@ var $builtinmodule = function (name) {
         return new Sk.builtin.list(reslist);
     });
 
+    mod.querySelector = new Sk.builtin.func(function (cname) {
+        var r = document.querySelector(cname.v);
+        if (r) {
+            return Sk.misceval.callsimArray(mod.Element, [r]);
+        }
+        return Sk.builtin.none.none$;
+    });
+
+    mod.querySelectorAll = new Sk.builtin.func(function (cname) {
+        var r = document.querySelectorAll(cname.v);
+        var reslist = [];
+        for (var i = 0; i < r.length; i++) {
+            reslist.push(Sk.misceval.callsimArray(mod.Element, [r[i]]));
+        }
+        ;
+        return new Sk.builtin.list(reslist);
+    });
+
     mod.getCurrentEditorValue = new Sk.builtin.func(function () {
         if (Sk.divid !== undefined && edList !== undefined) {
+            if (Sk.gradeContainer != Sk.divid) {
+                var edKey = Sk.gradeContainer + ' ' + Sk.divid;
+                return new Sk.builtin.str(edList[edKey].editor.getValue())
+            }
             return new Sk.builtin.str(edList[Sk.divid].editor.getValue())
         }
         else {
@@ -73,6 +95,19 @@ var $builtinmodule = function (name) {
             throw new Sk.builtin.AttributeError("There is no course");
         }
     })
+
+    mod.currentGradingContainer = new Sk.builtin.func(function () {
+        if (Sk.gradeContainer !== undefined) {
+            return new Sk.builtin.str(Sk.gradeContainer)
+        }
+        else {
+            if (Sk.divid != undefined) {
+                return new Sk.builtin.str(Sk.divid)
+            }
+            throw new Sk.builtin.AttributeError("There is no value set for grading");
+        }
+    })
+
 
     elementClass = function ($gbl, $loc) {
         /*
@@ -104,7 +139,24 @@ var $builtinmodule = function (name) {
 
         })
 
-        $loc.tp$getattr = Sk.builtin.object.prototype.GenericGetAttr;
+        $loc._internalGenericGetAttr = Sk.builtin.object.prototype.GenericGetAttr;
+        $loc.__getattr__ = new Sk.builtin.func(function (self, name) {
+            if (name != null && (Sk.builtin.checkString(name) || typeof name === "string")) {
+                var _name = name;
+
+                // get javascript string
+                if (Sk.builtin.checkString(name)) {
+                    _name = Sk.ffi.remapToJs(name);
+                }
+
+                var res = self.v[_name];
+                if (res != undefined) {
+                    return Sk.misceval.callsimArray(mod.Element, [res]);
+                }
+            }
+
+            return $loc._internalGenericGetAttr(name);
+        });
 
         $loc.__setattr__ = new Sk.builtin.func(function (self, key, value) {
             key = Sk.ffi.remapToJs(key);
@@ -128,6 +180,14 @@ var $builtinmodule = function (name) {
         $loc.removeChild = new Sk.builtin.func(function (self, node) {
             self.v.removeChild(node.v)
         })
+
+        $loc.closest = new Sk.builtin.func(function (self, ch) {
+            var res = self.v.closest(ch.v);
+            if (res) {
+                return Sk.misceval.callsimArray(mod.Element, [res]);
+            }
+            return Sk.builtin.none.none$;
+        });
 
         // getCSS
 
