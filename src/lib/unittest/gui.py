@@ -7,7 +7,8 @@ from time import sleep
 class TestCaseGui(TestCase):
      def __init__(self):
           TestCase.__init__(self)
-          self.divid = document.currentDiv()
+          self.closestDiv = document.currentDiv()
+          self.divid = document.currentGradingContainer()
           self.mydiv = document.getElementById(self.divid)
           res = document.getElementById(self.divid+'_unit_results')
           if res:
@@ -23,7 +24,8 @@ class TestCaseGui(TestCase):
      def main(self):
          t = document.createElement('table')
          self.resTable = t
-         self.resdiv.appendChild(self.resTable)
+         if not self.resdiv.closest('[data-component=timedAssessment]'):
+            self.resdiv.appendChild(self.resTable)
 
          headers = ['Result','Actual Value','Expected Value','Notes']
          row = document.createElement('tr')
@@ -47,7 +49,11 @@ class TestCaseGui(TestCase):
 
      def getOutput(self):
          sleep(.2)
-         output = document.getElementById(self.divid+'_stdout')
+         # self.divid will be the gradingWrapper when in grading mode
+         if self.closestDiv != self.divid:
+             output = document.querySelector("#{} #{}_stdout".format(self.divid, self.closestDiv))
+         else:
+             output = document.getElementById(self.divid+'_stdout')
          return output.innerText
 
      def getEditorText(self):
