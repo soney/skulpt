@@ -157,7 +157,7 @@ class TestCaseGui(TestCase):
         else:
             # This is a little hacky
             try:
-                jseval("edList['{}'].pct_correct = {}".format(self.closestDiv, pct))
+                jseval("window.edList['{}'].pct_correct = {}".format(self.closestDiv, pct))
             except:
                 print("failed to find object to record unittest results - they are on the server")
 
