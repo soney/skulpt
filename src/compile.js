@@ -110,6 +110,7 @@ Compiler.prototype.annotateSource = function (ast) {
         }
         out("^\n//\n");
 
+        Sk.asserts.assert(ast.lineno !== undefined && ast.col_offset !== undefined);
         out("$currLineNo = ", lineno, ";\n$currColNo = ", col_offset, ";\n\n");
     }
 };
@@ -239,6 +240,7 @@ function unfixReserved(name) {
 function mangleName (priv, ident) {
     var name = ident.v;
     var strpriv = null;
+
 
     if (priv === null || name === null || name.charAt(0) !== "_" || name.charAt(1) !== "_") {
         return ident;
@@ -378,20 +380,71 @@ Compiler.prototype._checkSuspension = function(e) {
         out ("if ($ret && $ret.$isSuspension) { $ret = Sk.misceval.retryOptionalSuspensionOrThrow($ret); }");
     }
 };
+Compiler.prototype.cunpackstarstoarray = function(elts, permitEndOnly) {
+    if (!elts || elts.length == 0) {
+        return "[]";
+    }
+
+    let hasStars = false;
+    // If there are no stars, we have a nice fast path here
+    for (let elt of elts) {
+        if (permitEndOnly && hasStars) {
+            throw new Sk.builtin.SyntaxError("Extended argument unpacking is not permitted in Python 2");
+        }
+        if (elt.constructor === Sk.astnodes.Starred) {
+            hasStars = true;
+        }
+    }
+
+    if (hasStars) {
+        // Slow path
+        let arr = this._gr("unpack", "[]");
+        for (let elt of elts) {
+            if (elt.constructor !== Sk.astnodes.Starred) {
+                out(arr,".push(",this.vexpr(elt),");");
+            } else {
+                out("$ret = Sk.misceval.iterFor(Sk.abstr.iter(",this.vexpr(elt.value),"), function(e) { ",arr,".push(e); });");
+                this._checkSuspension();
+            }
+        }
+        return arr;
+    } else {
+        // Fast path
+        return "[" + elts.map((expr) => this.vexpr(expr)).join(",") + "]";
+    }
+}
+
 Compiler.prototype.ctuplelistorset = function(e, data, tuporlist) {
     var i;
     var items;
     var item;
     var allconsts;
     Sk.asserts.assert(tuporlist === "tuple" || tuporlist === "list" || tuporlist === "set");
+
+    let hasStars = false;
+    for (let elt of e.elts) {
+        if (elt.constructor === Sk.astnodes.Starred) { hasStars = true; break; }
+    }
+
     if (e.ctx === Sk.astnodes.Store) {
+        if (hasStars) {
+            // TODO support this in Python 3 mode
+            throw new Sk.builtin.SyntaxError("Tuple unpacking with stars is not supported");
+        }
         items = this._gr("items", "Sk.abstr.sequenceUnpack(" + data + "," + e.elts.length + ")");
         for (i = 0; i < e.elts.length; ++i) {
             this.vexpr(e.elts[i], items + "[" + i + "]");
         }
     }
     else if (e.ctx === Sk.astnodes.Load || tuporlist === "set") { //because set's can't be assigned to.
-        if (tuporlist === "tuple") {
+
+        if (hasStars) {
+            if (!Sk.__future__.python3) {
+                throw new Sk.builtin.SyntaxError("List packing with stars is not supported in Python 2");
+            }
+            return this._gr("load" + tuporlist, "new Sk.builtins['", tuporlist, "'](", this.cunpackstarstoarray(e.elts), ")");
+        }
+        else if (tuporlist === "tuple") {
             allconsts = true;
             items = [];
             for (i = 0; i < e.elts.length; ++i) {
@@ -407,6 +460,7 @@ Compiler.prototype.ctuplelistorset = function(e, data, tuporlist) {
                 }
                 items.push(item);
             }
+
             if (allconsts) {
                 return this.makeConstant("new Sk.builtin.tuple([" + items + "])");
             } else {
@@ -429,12 +483,14 @@ Compiler.prototype.cdict = function (e) {
     var v;
     var i;
     var items;
-    Sk.asserts.assert(e.values.length === e.keys.length);
     items = [];
-    for (i = 0; i < e.values.length; ++i) {
-        v = this.vexpr(e.values[i]); // "backwards" to match order in cpy
-        items.push(this.vexpr(e.keys[i]));
-        items.push(v);
+    if (e.keys !== null) {
+        Sk.asserts.assert(e.values.length === e.keys.length);
+        for (i = 0; i < e.values.length; ++i) {
+            v = this.vexpr(e.values[i]); // "backwards" to match order in cpy
+            items.push(this.vexpr(e.keys[i]));
+            items.push(v);
+        }
     }
     return this._gr("loaddict", "new Sk.builtins['dict']([", items, "])");
 };
@@ -485,7 +541,7 @@ Compiler.prototype.ccompgen = function (type, tmpname, generators, genIndex, val
     this._jumpundef(nexti, anchor); // todo; this should be handled by StopIteration
     target = this.vexpr(l.target, nexti);
 
-    n = l.ifs.length;
+    n = l.ifs ? l.ifs.length : 0;
     for (i = 0; i < n; ++i) {
         ifres = this.vexpr(l.ifs[i]);
         this._jumpfalse(ifres, start);
@@ -521,7 +577,7 @@ Compiler.prototype.ccompgen = function (type, tmpname, generators, genIndex, val
 Compiler.prototype.cyield = function(e)
 {
     if (this.u.ste.blockType !== Sk.SYMTAB_CONSTS.FunctionBlock) {
-        throw new SyntaxError("'yield' outside function");
+        throw new Sk.builtin.SyntaxError("'yield' outside function", this.filename, e.lineno);
     }
     var val = "null",
         nextBlock;
@@ -563,50 +619,52 @@ Compiler.prototype.ccompare = function (e) {
 };
 
 Compiler.prototype.ccall = function (e) {
-    var kwargs;
-    var starargs;
-    var keywords;
-    var i;
-    var kwarray;
     var func = this.vexpr(e.func);
-    var args = this.vseqexpr(e.args);
+    var kwarray = null;
+    // Okay, here's the deal. We have some set of positional args
+    // and we need to unpack them. We have some set of keyword args
+    // and we need to unpack those too. Then we make a call.
+    // The existing Sk.misceval.call() and .apply() signatures do not
+    // help us here; we do it by hand.
 
-    //print(JSON.stringify(e, null, 2));
-    if (e.keywords.length > 0 || e.starargs || e.kwargs) {
+    let positionalArgs = this.cunpackstarstoarray(e.args, !Sk.__future__.python3);
+    let keywordArgs = "undefined";
+
+    if (e.keywords && e.keywords.length > 0) {
+        let hasStars = false;
         kwarray = [];
-        for (i = 0; i < e.keywords.length; ++i) {
-            kwarray.push("'" + e.keywords[i].arg.v + "'");
-            kwarray.push(this.vexpr(e.keywords[i].value));
+        for (let kw of e.keywords) {
+            if (hasStars && !Sk.__future__.python3) {
+                throw new SyntaxError("Advanced unpacking of function arguments is not supported in Python 2");
+            }
+            if (kw.arg) {
+                kwarray.push("'" + kw.arg.v + "'");
+                kwarray.push(this.vexpr(kw.value));
+            } else {
+                hasStars = true;
+            }
         }
-        keywords = "[" + kwarray.join(",") + "]";
-        starargs = "undefined";
-        kwargs = "undefined";
-        if (e.starargs) {
-            starargs = this.vexpr(e.starargs);
-        }
-        if (e.kwargs) {
-            kwargs = this.vexpr(e.kwargs);
-        }
-        out ("$ret;"); // This forces a failure if $ret isn't defined
-        out ("$ret = Sk.misceval.callOrSuspend(", func, ",", kwargs, ",", starargs, ",", keywords, args.length > 0 ? "," : "", args, ");");
-    }
-    else {
-        out ("$ret;"); // This forces a failure if $ret isn't defined
-        if (Sk.__future__.super_args && e.func.id && e.func.id.v === "super" && args.length == 0) {
-            // make sure there is a self variable
-            // note that it's part of the js API spec: https://developer.mozilla.org/en/docs/Web/API/Window/self
-            // so we should probably add self to the mangling
-            // TODO: feel free to ignore the above
-            out("if (typeof self === \"undefined\" || self.toString().indexOf(\"Window\") > 0) { throw new Sk.builtin.RuntimeError(\"super(): no arguments\") };")
-            args.push("$gbl.__class__");
-            args.push("self");
-        }
-        if (args.length > 0) {
-            out ("$ret = Sk.misceval.callsimOrSuspendArray(", func, ", [", args, "]);");
-        } else {
-            out ("$ret = Sk.misceval.callsimOrSuspendArray(", func, ");");
+        keywordArgs = "[" + kwarray.join(",") + "]";
+        if (hasStars) {
+            keywordArgs = this._gr("keywordArgs", keywordArgs);
+            for (let kw of e.keywords) {
+                if (!kw.arg) {
+                    out("$ret = Sk.abstr.mappingUnpackIntoKeywordArray(",keywordArgs,",",this.vexpr(kw.value),",",func,");");
+                    this._checkSuspension();
+                }
+            }
         }
     }
+
+    if (Sk.__future__.super_args && e.func.id && e.func.id.v === "super" && positionalArgs === "[]") {
+        // make sure there is a self variable
+        // note that it's part of the js API spec: https://developer.mozilla.org/en/docs/Web/API/Window/self
+        // so we should probably add self to the mangling
+        // TODO: feel free to ignore the above
+        out("if (typeof self === \"undefined\" || self.toString().indexOf(\"Window\") > 0) { throw new Sk.builtin.RuntimeError(\"super(): no arguments\") };")
+        positionalArgs = "[$gbl.__class__,self]";
+    }
+    out ("$ret = (",func,".tp$call)?",func,".tp$call(",positionalArgs,",",keywordArgs,") : Sk.misceval.applyOrSuspend(",func,",undefined,undefined,",keywordArgs,",",positionalArgs,");");
 
     this._checkSuspension(e);
 
@@ -618,9 +676,18 @@ Compiler.prototype.cslice = function (s) {
     var high;
     var low;
     Sk.asserts.assert(s instanceof Sk.astnodes.Slice);
-    low = s.lower ? this.vexpr(s.lower) : s.step ? "Sk.builtin.none.none$" : "new Sk.builtin.int_(0)"; // todo;ideally, these numbers would be constants
-    high = s.upper ? this.vexpr(s.upper) : s.step ? "Sk.builtin.none.none$" : "new Sk.builtin.int_(2147483647)";
-    step = s.step ? this.vexpr(s.step) : "Sk.builtin.none.none$";
+    if (Sk.__future__.python3) {
+        low = s.lower ? this.vexpr(s.lower) : "Sk.builtin.none.none$";
+        high = s.upper ? this.vexpr(s.upper) : "Sk.builtin.none.none$";
+        step = s.step ? this.vexpr(s.step) : "Sk.builtin.none.none$";
+    } else {
+        // This implements Python 2's idea of slice literals, which is...idiosyncratic.
+        // The rules for when you get None, and when you get an arbitrary integer (0 or maxint)
+        // seem pretty arbitrary. Python 3's are much saner.
+        low = s.lower ? this.vexpr(s.lower) : s.step ? "Sk.builtin.none.none$" : "new Sk.builtin.int_(0)"; // todo;ideally, these numbers would be constants
+        high = s.upper ? this.vexpr(s.upper) : s.step ? "Sk.builtin.none.none$" : "new Sk.builtin.int_(2147483647)";
+        step = s.step ? this.vexpr(s.step) : "Sk.builtin.none.none$";
+    }
     return this._gr("slice", "new Sk.builtins['slice'](", low, ",", high, ",", step, ")");
 };
 
@@ -709,6 +776,45 @@ Compiler.prototype.cboolop = function (e) {
     this._jump(end);
     this.setBlock(end);
     return retval;
+};
+
+
+Compiler.prototype.cjoinedstr = function (e) {
+    let ret;
+    Sk.asserts.assert(e instanceof Sk.astnodes.JoinedStr);
+
+    for (let s of e.values) {
+        let v = this.vexpr(s);
+        if (!ret) {
+            ret = this._gr("joinedstr", v);
+        } else {
+            out(ret,"=",ret,".sq$concat(",v,");");
+        }
+    }
+
+    if (!ret) {
+        ret = 'Sk.builtin.str.$emptystr';
+    }
+
+    return ret;
+};
+
+Compiler.prototype.cformattedvalue = function(e) {
+    let value = this.vexpr(e.value);
+    switch (e.conversion) {
+        case 's':
+            value = this._gr("value", "Sk.builtin.str(",value,")");
+            break;
+        case 'a':
+            // TODO when repr() becomes more unicode-aware,
+            // we'll want to handle repr() and ascii() differently.
+            // For now, they're the same
+        case 'r':
+            value = this._gr("value", "Sk.builtin.repr(",value,")");
+            break;
+    }
+    let formatSpec = (e.format_spec ? this.vexpr(e.format_spec) : "Sk.builtin.str.$emptystr");
+    return this._gr("formatted", "Sk.abstr.objectFormat("+value+","+formatSpec+")");
 };
 
 
@@ -858,14 +964,36 @@ Compiler.prototype.vexpr = function (e, data, augvar, augsubs) {
             break;
         case Sk.astnodes.Name:
             return this.nameop(e.id, e.ctx, data);
+        case Sk.astnodes.NameConstant:
+            if (e.ctx === Sk.astnodes.Store || e.ctx === Sk.astnodes.AugStore || e.ctx === Sk.astnodes.Del) {
+                throw new Sk.builtin.SyntaxError("can not assign to a constant name");
+            }
+
+            switch (e.value) {
+                case Sk.builtin.none.none$:
+                    return "Sk.builtin.none.none$";
+                case Sk.builtin.bool.true$:
+                    return "Sk.builtin.bool.true$";
+                case Sk.builtin.bool.false$:
+                    return "Sk.builtin.bool.false$";
+                default:
+                    Sk.asserts.fail("invalid named constant")
+            }
+            break;
         case Sk.astnodes.List:
             return this.ctuplelistorset(e, data, 'list');
         case Sk.astnodes.Tuple:
             return this.ctuplelistorset(e, data, 'tuple');
         case Sk.astnodes.Set:
             return this.ctuplelistorset(e, data, 'set');
+        case Sk.astnodes.Starred:
+            break;
+        case Sk.astnodes.JoinedStr:
+            return this.cjoinedstr(e);
+        case Sk.astnodes.FormattedValue:
+            return this.cformattedvalue(e);
         default:
-            Sk.asserts.fail("unhandled case in vexpr");
+            Sk.asserts.fail("unhandled case " + e.constructor.name + " vexpr");
     }
 };
 
@@ -878,6 +1006,11 @@ Compiler.prototype.vseqexpr = function (exprs, data) {
     var ret;
     Sk.asserts.assert(data === undefined || exprs.length === data.length);
     ret = [];
+
+    // if (exprs.length === 1 && exprs[0].constructor === Sk.astnodes.Starred) {
+    //     exprs = exprs[0].value;
+    // }
+
     for (i = 0; i < exprs.length; ++i) {
         ret.push(this.vexpr(exprs[i], data === undefined ? undefined : data[i]));
     }
@@ -1122,7 +1255,7 @@ Compiler.prototype.cif = function (s) {
     var next;
     var end;
     var constant;
-    Sk.asserts.assert(s instanceof Sk.astnodes.If_);
+    Sk.asserts.assert(s instanceof Sk.astnodes.If);
     constant = this.exprConstant(s.test);
     if (constant === 0) {
         if (s.orelse && s.orelse.length > 0) {
@@ -1287,100 +1420,45 @@ Compiler.prototype.cfor = function (s) {
 };
 
 Compiler.prototype.craise = function (s) {
-    var inst = "", exc;
-    if (s.inst) {
-        // handles: raise Error, arguments
-        inst = this.vexpr(s.inst);
-        out("throw ", this.vexpr(s.type), "(", inst, ");");
-    }
-    else if (s.type) {
-        if (s.type.func) {
-            // handles: raise Error(arguments)
-            out("throw ", this.vexpr(s.type), ";");
-        }
-        else {
-            // handles: raise Error OR raise someinstance
-            exc = this._gr("err", this.vexpr(s.type));
-            out("if(",exc," instanceof Sk.builtin.type) {",
-                "throw Sk.misceval.callsimArray(", exc, ");",
-                "} else if(typeof(",exc,") === 'function') {",
-                "throw ",exc,"();",
-                "} else {",
-                "throw ", exc, ";",
+    if (s.exc) {
+        var exc = this._gr("exc", this.vexpr(s.exc));
+        // This is tricky - we're supporting both the weird-ass semantics
+        // of the Python 2 "raise (exc), (inst), (tback)" version,
+        // plus the sensible Python "raise (exc) from (cause)".
+        // ast.js takes care of ensuring that you can only use the right one
+        // for the Python version you're using.
+
+        var instantiatedException = this.newBlock("exception now instantiated");
+        var isClass = this._gr("isclass", exc + " instanceof Sk.builtin.type || " + exc + ".prototype instanceof Sk.builtin.BaseException");
+        this._jumpfalse(isClass, instantiatedException);
+        //this._jumpfalse(instantiatedException, isClass);
+
+        // Instantiate exc with inst
+        if (s.inst) {
+            var inst = this._gr("inst", this.vexpr(s.inst));
+            out("if(!(",inst," instanceof Sk.builtin.tuple)) {",
+                inst,"= new Sk.builtin.tuple([",inst,"]);",
                 "}");
+            out("$ret = Sk.misceval.callsimOrSuspendArray(",exc,",",inst,".v);");
+        } else {
+            out("$ret = Sk.misceval.callsimOrSuspend(",exc,");");
         }
+        this._checkSuspension(s);
+        out(exc,"=$ret;");
+
+        this._jump(instantiatedException);
+
+        this.setBlock(instantiatedException);
+
+        // TODO TODO TODO set cause appropriately
+        // (and perhaps traceback for py2 if we care before it gets fully deprecated)
+
+        out("throw ",exc,";");
     }
     else {
         // re-raise
         out("throw $err;");
     }
-};
-
-Compiler.prototype.ctryexcept = function (s) {
-    var check;
-    var next;
-    var handlertype;
-    var handler;
-    var end;
-    var orelse;
-    var unhandled;
-    var i;
-    var n = s.handlers.length;
-
-    // Create a block for each except clause
-    var handlers = [];
-    for (i = 0; i < n; ++i) {
-        handlers.push(this.newBlock("except_" + i + "_"));
-    }
-
-    unhandled = this.newBlock("unhandled");
-    orelse = this.newBlock("orelse");
-    end = this.newBlock("end");
-
-    this.setupExcept(handlers[0]);
-    this.vseqstmt(s.body);
-    this.endExcept();
-    this._jump(orelse);
-
-    for (i = 0; i < n; ++i) {
-        this.setBlock(handlers[i]);
-        handler = s.handlers[i];
-        if (!handler.type && i < n - 1) {
-            throw new SyntaxError("default 'except:' must be last");
-        }
-
-        if (handler.type) {
-            // should jump to next handler if err not isinstance of handler.type
-            handlertype = this.vexpr(handler.type);
-            next = (i == n - 1) ? unhandled : handlers[i + 1];
-
-            // var isinstance = this.nameop(new Sk.builtin.str("isinstance"), Load));
-            // var check = this._gr('call', "Sk.misceval.callsimArray(", isinstance, ", [$err, ", handlertype, "])");
-
-            check = this._gr("instance", "Sk.misceval.isTrue(Sk.builtin.isinstance($err, ", handlertype, "))");
-            this._jumpfalse(check, next);
-        }
-
-        if (handler.name) {
-            this.vexpr(handler.name, "$err");
-        }
-
-        this.vseqstmt(handler.body);
-
-        // Should jump to finally, but finally is not implemented yet
-        this._jump(end);
-    }
-
-    // If no except clause catches exception, throw it again
-    this.setBlock(unhandled);
-    // Should execute finally first
-    out("throw $err;");
-
-    this.setBlock(orelse);
-    this.vseqstmt(s.orelse);
-    this._jump(end);
-
-    this.setBlock(end);
 };
 
 Compiler.prototype.outputFinallyCascade = function (thisFinally) {
@@ -1429,40 +1507,112 @@ Compiler.prototype.outputFinallyCascade = function (thisFinally) {
     }
 };
 
-Compiler.prototype.ctryfinally = function (s) {
+Compiler.prototype.ctry = function (s) {
+    var check;
+    var next;
+    var handlertype;
+    var handler;
+    var end;
+    var orelse;
+    var unhandled;
+    var i;
+    var n = s.handlers.length;
 
-    var finalBody = this.newBlock("finalbody");
-    var exceptionHandler = this.newBlock("finalexh")
-    var exceptionToReRaise = this._gr("finally_reraise", "undefined");
+    var finalBody, finalExceptionHandler, finalExceptionToReRaise;
     var thisFinally;
-    this.u.tempsToSave.push(exceptionToReRaise);
 
-    this.pushFinallyBlock(finalBody);
-    thisFinally = this.peekFinallyBlock();
-    this.setupExcept(exceptionHandler);
+    if (s.finalbody) {
+        finalBody = this.newBlock("finalbody");
+        finalExceptionHandler = this.newBlock("finalexh")
+        finalExceptionToReRaise = this._gr("finally_reraise", "undefined");
+
+        this.u.tempsToSave.push(finalExceptionToReRaise);
+        this.pushFinallyBlock(finalBody);
+        thisFinally = this.peekFinallyBlock();
+        this.setupExcept(finalExceptionHandler);
+    }
+
+    // Create a block for each except clause
+    var handlers = [];
+    for (i = 0; i < n; ++i) {
+        handlers.push(this.newBlock("except_" + i + "_"));
+    }
+
+    unhandled = this.newBlock("unhandled");
+    orelse = this.newBlock("orelse");
+    end = this.newBlock("end");
+
+    if (handlers.length != 0) {
+        this.setupExcept(handlers[0]);
+    }
     this.vseqstmt(s.body);
-    this.endExcept();
-    // Normal execution falls through to finally body
-    this._jump(finalBody);
+    if (handlers.length != 0) {
+        this.endExcept();
+    }
+    this._jump(orelse);
 
-    this.setBlock(exceptionHandler);
-    // Exception handling also goes to the finally body,
-    // stashing the original exception to re-raise
-    out(exceptionToReRaise,"=$err;");
-    this._jump(finalBody);
+    for (i = 0; i < n; ++i) {
+        this.setBlock(handlers[i]);
+        handler = s.handlers[i];
+        if (!handler.type && i < n - 1) {
+            throw new Sk.builtin.SyntaxError("default 'except:' must be last", this.filename, handler.lineno);
+        }
 
-    this.setBlock(finalBody);
-    this.popFinallyBlock();
-    this.vseqstmt(s.finalbody);
-    // If finalbody executes normally, AND we have an exception
-    // to re-raise, we raise it.
-    out("if(",exceptionToReRaise,"!==undefined) { throw ",exceptionToReRaise,";}");
+        if (handler.type) {
+            // should jump to next handler if err not isinstance of handler.type
+            handlertype = this.vexpr(handler.type);
+            next = (i == n - 1) ? unhandled : handlers[i + 1];
 
-    this.outputFinallyCascade(thisFinally);
-    // Else, we continue from here.
+            // var isinstance = this.nameop(new Sk.builtin.str("isinstance"), Load));
+            // var check = this._gr('call', "Sk.misceval.callsimArray(", isinstance, ", [$err, ", handlertype, "])");
+
+            check = this._gr("instance", "Sk.misceval.isTrue(Sk.builtin.isinstance($err, ", handlertype, "))");
+            this._jumpfalse(check, next);
+        }
+
+        if (handler.name) {
+            this.vexpr(handler.name, "$err");
+        }
+
+        this.vseqstmt(handler.body);
+
+        this._jump(end);
+    }
+
+    // If no except clause catches exception, throw it again
+    this.setBlock(unhandled);
+    out("throw $err;");
+
+    this.setBlock(orelse);
+    this.vseqstmt(s.orelse);
+    this._jump(end);
+
+    this.setBlock(end);
+    // End of the try/catch/else segment
+    if (s.finalbody) {
+        this.endExcept();
+
+        this._jump(finalBody);
+
+        this.setBlock(finalExceptionHandler);
+        // Exception handling also goes to the finally body,
+        // stashing the original exception to re-raise
+        out(finalExceptionToReRaise,"=$err;");
+        this._jump(finalBody);
+
+        this.setBlock(finalBody);
+        this.popFinallyBlock();
+        this.vseqstmt(s.finalbody);
+        // If finalbody executes normally, AND we have an exception
+        // to re-raise, we raise it.
+        out("if(",finalExceptionToReRaise,"!==undefined) { throw ",finalExceptionToReRaise,";}");
+
+        this.outputFinallyCascade(thisFinally);
+        // Else, we continue from here.
+    }
 };
 
-Compiler.prototype.cwith = function (s) {
+Compiler.prototype.cwith = function (s, itemIdx) {
     var mgr, exit, value, exception;
     var exceptionHandler = this.newBlock("withexh"), tidyUp = this.newBlock("withtidyup");
     var carryOn = this.newBlock("withcarryon");
@@ -1472,7 +1622,7 @@ Compiler.prototype.cwith = function (s) {
     // specifies "exit = type(mgr).__exit__" rather than getattr()ing,
     // presumably for performance reasons.
 
-    mgr = this._gr("mgr", this.vexpr(s.context_expr));
+    mgr = this._gr("mgr", this.vexpr(s.items[itemIdx].context_expr));
 
     // exit = mgr.__exit__
     out("$ret = Sk.abstr.gattr(",mgr,",Sk.builtin.str.$exit, true);");
@@ -1493,12 +1643,20 @@ Compiler.prototype.cwith = function (s) {
     this.setupExcept(exceptionHandler);
 
     //    VAR = value
-    if (s.optional_vars) {
-        this.nameop(s.optional_vars.id, Sk.astnodes.Store, value);
+    if (s.items[itemIdx].optional_vars) {
+        this.nameop(s.items[itemIdx].optional_vars.id, Sk.astnodes.Store, value);
     }
 
     //    (try body)
-    this.vseqstmt(s.body);
+
+    if (itemIdx +1 < s.items.length) {
+        // "with" statements with multiple items (context managers) are
+        // treated as nested "with" statements
+        this.cwith(s, itemIdx + 1);
+    } else {
+        this.vseqstmt(s.body);
+    }
+
     this.endExcept();
     this._jump(tidyUp);
 
@@ -1665,8 +1823,7 @@ Compiler.prototype.cfromimport = function (s) {
 Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, callback, class_for_super) {
     var containingHasFree;
     var frees;
-    var argnamesarr;
-    var argnames;
+    var argnamesarr = [];
     var start;
     var kw;
     var maxargs;
@@ -1685,6 +1842,7 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     var scopename;
     var decos = [];
     var defaults = [];
+    var kw_defaults = [];
     var vararg = null;
     var kwarg = null;
 
@@ -1698,11 +1856,17 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     if (args && args.defaults) {
         defaults = this.vseqexpr(args.defaults);
     }
+    if (args && args.kw_defaults) {
+        kw_defaults = args.kw_defaults.map(e => e ? this.vexpr(e) : 'undefined');
+    }
     if (args && args.vararg) {
         vararg = args.vararg;
     }
     if (args && args.kwarg) {
         kwarg = args.kwarg;
+    }
+    if (!Sk.__future__.python3 && args && args.kwonlyargs && args.kwonlyargs.length != 0) {
+        throw new Sk.builtin.SyntaxError("Keyword-only arguments are not supported in Python 2");
     }
 
     //
@@ -1723,11 +1887,14 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
 
     funcArgs = [];
     if (isGenerator) {
+        // TODO make generators deal with arguments properly
         if (kwarg) {
-            throw new SyntaxError(coname.v + "(): keyword arguments in generators not supported");
+            throw new Sk.builtin.SyntaxError(coname.v + "(): keyword arguments in generators not supported",
+                                            this.filename, n.lineno);
         }
         if (vararg) {
-            throw new SyntaxError(coname.v + "(): variable number of arguments in generators not supported");
+            throw new Sk.builtin.SyntaxError(coname.v + "(): variable number of arguments in generators not supported",
+                                            this.filename, n.lineno);
         }
         funcArgs.push("$gen");
     }
@@ -1737,16 +1904,18 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
             this.u.tempsToSave.push("$kwa");
         }
         for (i = 0; args && i < args.args.length; ++i) {
-            funcArgs.push(this.nameop(args.args[i].id, Sk.astnodes.Param));
+            funcArgs.push(this.nameop(args.args[i].arg, Sk.astnodes.Param));
+        }
+        for (i = 0; args && args.kwonlyargs && i < args.kwonlyargs.length; ++i) {
+            funcArgs.push(this.nameop(args.kwonlyargs[i].arg, Sk.astnodes.Param));
+        }
+        if (vararg) {
+            funcArgs.push(this.nameop(args.vararg.arg, Sk.astnodes.Param));
         }
     }
     if (hasFree) {
-        if (vararg) {
-            this.u.varDeclsCode += "$free = arguments[arguments.length-1];"
-        } else {
-            funcArgs.push("$free");
-            this.u.tempsToSave.push("$free");
-        }
+        funcArgs.push("$free");
+        this.u.tempsToSave.push("$free");
     }
 
     this.u.prefixCode += funcArgs.join(",");
@@ -1794,17 +1963,20 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     //
     this.u.varDeclsCode += "if ("+scopename+".$wakingSuspension!==undefined) { $wakeFromSuspension(); } else {";
 
+    // TODO update generators to do their arg checks in outside generated code,
+    // like functions do
+    //
     // this could potentially get removed if generators would learn to deal with args, kw, kwargs, varargs
     // initialize default arguments. we store the values of the defaults to
     // this code object as .$defaults just below after we exit this scope.
     //
-    if (defaults.length > 0) {
+    if (isGenerator && defaults.length > 0) {
         // defaults have to be "right justified" so if there's less defaults
         // than args we offset to make them match up (we don't need another
         // correlation in the ast)
         offset = args.args.length - defaults.length;
         for (i = 0; i < defaults.length; ++i) {
-            argname = this.nameop(args.args[i + offset].id, Sk.astnodes.Param);
+            argname = this.nameop(args.args[i + offset].arg, Sk.astnodes.Param);
             this.u.varDeclsCode += "if(" + argname + "===undefined)" + argname + "=" + scopename + ".$defaults[" + i + "];";
         }
     }
@@ -1814,40 +1986,30 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     // they can be accessed correctly by nested scopes.
     //
     for (i = 0; args && i < args.args.length; ++i) {
-        id = args.args[i].id;
+        id = args.args[i].arg;
         if (this.isCell(id)) {
             this.u.varDeclsCode += "$cell." + id.v + "=" + id.v + ";";
         }
     }
-
-    //
-    // make sure correct number of arguments were passed (generators handled below)
-    //
-    if (!isGenerator) {
-        minargs = args ? args.args.length - defaults.length : 0;
-        maxargs = vararg ? Infinity : (args ? args.args.length : 0);
-        kw = kwarg ? true : false;
-        this.u.varDeclsCode += "Sk.builtin.pyCheckArgsLen(\"" + coname.v +
-            "\", arguments.length, " + minargs + ", " + maxargs + ", " + kw +
-            ", " + hasFree + ");";
+    for (i = 0; args && args.kwonlyargs && i < args.kwonlyargs.length; ++i) {
+        id = args.kwonlyargs[i].arg;
+        if (this.isCell(id)) {
+            this.u.varDeclsCode += "$cell." + id.v + "=" + id.v + ";";
+        }
     }
-
-    //
-    // initialize vararg, if any
-    //
-    if (vararg) {
-        start = funcArgs.length;
-
-        this.u.localnames.push(vararg.v);
-        this.u.varDeclsCode += vararg.v + "=new Sk.builtins['tuple'](Array.prototype.slice.call(arguments," + start + (hasFree ? ",-1)" : ")") + "); /*vararg*/";
+    if (vararg && this.isCell(vararg.arg)) {
+        this.u.varDeclsCode += "$cell." + vararg.arg.v + "=" + vararg.arg.v + ";";
     }
 
     //
     // initialize kwarg, if any
     //
     if (kwarg) {
-        this.u.localnames.push(kwarg.v);
-        this.u.varDeclsCode += kwarg.v + "=new Sk.builtins['dict']($kwa);";
+        this.u.localnames.push(kwarg.arg.v);
+        this.u.varDeclsCode += kwarg.arg.v + "=new Sk.builtins['dict']($kwa);";
+        if (this.isCell(kwarg.arg)) {
+            this.u.varDeclsCode += "$cell." + kwarg.arg.v + "=" + kwarg.arg.v + ";";
+        }
     }
 
     //
@@ -1856,7 +2018,7 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     this.u.varDeclsCode += "}";
 
     // inject __class__ cell when running python3
-    if (Sk.python3 && class_for_super) {
+    if (Sk.__future__.python3 && class_for_super) {
         this.u.varDeclsCode += "$gbl.__class__=this." + class_for_super.v + ";";
     }
 
@@ -1882,13 +2044,14 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     // get a list of all the argument names (used to attach to the code
     // object, and also to allow us to declare only locals that aren't also
     // parameters).
-    if (args && args.args.length > 0) {
-        argnamesarr = [];
-        for (i = 0; i < args.args.length; ++i) {
-            argnamesarr.push(args.args[i].id.v);
+    if (args) {
+        for (let arg of args.args) {
+            argnamesarr.push(arg.arg.v);
+        }
+        for (let arg of args.kwonlyargs || []) {
+            argnamesarr.push(arg.arg.v);
         }
 
-        argnames = argnamesarr.join("', '");
         // store to unit so we know what local variables not to declare
         this.u.argnames = argnamesarr;
     }
@@ -1906,17 +2069,20 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     if (defaults.length > 0) {
         out(scopename, ".$defaults=[", defaults.join(","), "];");
     }
-
-    if (decos.length > 0) {
-        out(scopename, ".$decorators=[", decos.join(","), "];");
+    if (args && args.kwonlyargs && args.kwonlyargs.length > 0) {
+        out(scopename, ".co_argcount=", args.args.length, ";");
+        out(scopename, ".co_kwonlyargcount=", args.kwonlyargs.length, ";");
+        out(scopename, ".$kwdefs=[", kw_defaults.join(","), "];");
     }
 
     //
     // attach co_varnames (only the argument names) for keyword argument
     // binding.
     //
-    if (argnames) {
-        out(scopename, ".co_varnames=['", argnames, "'];");
+    if (argnamesarr.length > 0) {
+        out(scopename, ".co_varnames=['", argnamesarr.join("','"), "'];");
+    } else {
+        out(scopename, ".co_varnames=[];");
     }
 
     //
@@ -1924,6 +2090,9 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     //
     if (kwarg) {
         out(scopename, ".co_kwargs=1;");
+    }
+    if (vararg) {
+        out(scopename, ".co_varargs=1;");
     }
 
     //
@@ -1967,8 +2136,11 @@ Compiler.prototype.buildcodeobj = function (n, coname, decorator_list, args, cal
     else {
         var res;
         if (decos.length > 0) {
-            out("$ret = Sk.misceval.callsimOrSuspendArray(", scopename, ".$decorators[0], [new Sk.builtins['function'](", scopename, ",$gbl", frees, ")]);");
-            this._checkSuspension();
+            out("$ret = new Sk.builtins['function'](", scopename, ",$gbl", frees, ");");
+            for (let decorator of decos) {
+                out("$ret = Sk.misceval.callsimOrSuspendArray(", decorator, ",[$ret]);");
+                this._checkSuspension();
+            }
             return this._gr("funcobj", "$ret");
         }
 
@@ -2056,7 +2228,7 @@ Compiler.prototype.cgenexpgen = function (generators, genIndex, elt) {
     this._jumpundef(nexti, end); // todo; this should be handled by StopIteration
     target = this.vexpr(ge.target, nexti);
 
-    n = ge.ifs.length;
+    n = ge.ifs ? ge.ifs.length : 0;
     for (i = 0; i < n; ++i) {
         this.annotateSource(ge.ifs[i]);
 
@@ -2109,10 +2281,8 @@ Compiler.prototype.cclass = function (s) {
     var bases;
     var decos;
     Sk.asserts.assert(s instanceof Sk.astnodes.ClassDef);
-    decos = s.decorator_list;
 
-    // decorators and bases need to be eval'd out here
-    //this.vseqexpr(decos);
+    decos = this.vseqexpr(s.decorator_list);
 
     bases = this.vseqexpr(s.bases);
 
@@ -2143,21 +2313,26 @@ Compiler.prototype.cclass = function (s) {
 
     // build class
 
-    // apply decorators
-
     this.exitScope();
 
     // todo; metaclass
-    wrapped = this._gr("built", "Sk.misceval.buildClass($gbl,", scopename, ",", s.name["$r"]().v, ",[", bases, "], $cell)");
+    out("$ret = Sk.misceval.buildClass($gbl,", scopename, ",", s.name["$r"]().v, ",[", bases, "], $cell);")
+
+    // apply decorators
+
+    for (let decorator of decos) {
+        out("$ret = Sk.misceval.callsimOrSuspendArray(", decorator, ", [$ret]);");
+        this._checkSuspension();
+    }
 
     // store our new class under the right name
-    this.nameop(s.name, Sk.astnodes.Store, wrapped);
+    this.nameop(s.name, Sk.astnodes.Store, "$ret");
 };
 
 Compiler.prototype.ccontinue = function (s) {
     var nextFinally = this.peekFinallyBlock(), gotoBlock;
     if (this.u.continueBlocks.length == 0) {
-        throw new SyntaxError("'continue' outside loop");
+        throw new Sk.builtin.SyntaxError("'continue' outside loop", this.filename, s.lineno);
     }
     // todo; continue out of exception blocks
     gotoBlock = this.u.continueBlocks[this.u.continueBlocks.length - 1];
@@ -2173,7 +2348,7 @@ Compiler.prototype.cbreak = function (s) {
     var nextFinally = this.peekFinallyBlock(), gotoBlock;
 
     if (this.u.breakBlocks.length === 0) {
-        throw new SyntaxError("'break' outside loop");
+        throw new Sk.builtin.SyntaxError("'break' outside loop", this.filename, s.lineno);
     }
     gotoBlock = this.u.breakBlocks[this.u.breakBlocks.length - 1];
     if (nextFinally && nextFinally.breakDepth == this.u.breakBlocks.length) {
@@ -2219,9 +2394,9 @@ Compiler.prototype.vstmt = function (s, class_for_super) {
         case Sk.astnodes.ClassDef:
             this.cclass(s);
             break;
-        case Sk.astnodes.Return_:
+        case Sk.astnodes.Return:
             if (this.u.ste.blockType !== Sk.SYMTAB_CONSTS.FunctionBlock) {
-                throw new SyntaxError("'return' outside function");
+                throw new Sk.builtin.SyntaxError("'return' outside function", this.filename, s.lineno);
             }
             val = s.value ? this.vexpr(s.value) : "Sk.builtin.none.none$";
             if (this.u.finallyBlocks.length == 0) {
@@ -2231,7 +2406,7 @@ Compiler.prototype.vstmt = function (s, class_for_super) {
                 this._jump(this.peekFinallyBlock().blk);
             }
             break;
-        case Sk.astnodes.Delete_:
+        case Sk.astnodes.Delete:
             this.vseqexpr(s.targets);
             break;
         case Sk.astnodes.Assign:
@@ -2241,28 +2416,31 @@ Compiler.prototype.vstmt = function (s, class_for_super) {
                 this.vexpr(s.targets[i], val);
             }
             break;
+        case Sk.astnodes.AnnAssign:
+            val = this.vexpr(s.value);
+            this.vexpr(s.target, val);
+            this.vexpr(s.annotation);
+            break;
         case Sk.astnodes.AugAssign:
             return this.caugassign(s);
         case Sk.astnodes.Print:
             this.cprint(s);
             break;
-        case Sk.astnodes.For_:
+        case Sk.astnodes.For:
             return this.cfor(s);
-        case Sk.astnodes.While_:
+        case Sk.astnodes.While:
             return this.cwhile(s);
-        case Sk.astnodes.If_:
+        case Sk.astnodes.If:
             return this.cif(s);
         case Sk.astnodes.Raise:
             return this.craise(s);
-        case Sk.astnodes.TryExcept:
-            return this.ctryexcept(s);
-        case Sk.astnodes.TryFinally:
-            return this.ctryfinally(s);
-        case Sk.astnodes.With_:
-            return this.cwith(s);
+        case Sk.astnodes.Try:
+            return this.ctry(s);
+        case Sk.astnodes.With:
+            return this.cwith(s, 0);
         case Sk.astnodes.Assert:
             return this.cassert(s);
-        case Sk.astnodes.Import_:
+        case Sk.astnodes.Import:
             return this.cimport(s);
         case Sk.astnodes.ImportFrom:
             return this.cfromimport(s);
@@ -2273,13 +2451,13 @@ Compiler.prototype.vstmt = function (s, class_for_super) {
             break;
         case Sk.astnodes.Pass:
             break;
-        case Sk.astnodes.Break_:
+        case Sk.astnodes.Break:
             this.cbreak(s);
             break;
-        case Sk.astnodes.Continue_:
+        case Sk.astnodes.Continue:
             this.ccontinue(s);
             break;
-        case Sk.astnodes.Debugger_:
+        case Sk.astnodes.Debugger:
             out("debugger;");
             break;
         default:
@@ -2324,21 +2502,10 @@ Compiler.prototype.nameop = function (name, ctx, dataToStore) {
     var op;
     var mangled;
     if ((ctx === Sk.astnodes.Store || ctx === Sk.astnodes.AugStore || ctx === Sk.astnodes.Del) && name.v === "__debug__") {
-        throw new Sk.builtin.SyntaxError("can not assign to __debug__");
+        throw new Sk.builtin.SyntaxError("can not assign to __debug__", this.filename, this.u.lineno);
     }
-    if ((ctx === Sk.astnodes.Store || ctx === Sk.astnodes.AugStore || ctx === Sk.astnodes.Del) && name.v === "None") {
-        throw new Sk.builtin.SyntaxError("can not assign to None");
-    }
+    Sk.asserts.assert(name.v !== "None");
 
-    if (name.v === "None") {
-        return "Sk.builtin.none.none$";
-    }
-    if (name.v === "True") {
-        return "Sk.builtin.bool.true$";
-    }
-    if (name.v === "False") {
-        return "Sk.builtin.bool.false$";
-    }
     if (name.v === "NotImplemented") {
         return "Sk.builtin.NotImplemented.NotImplemented$";
     }
@@ -2631,8 +2798,15 @@ Compiler.prototype.cmod = function (mod) {
  */
 Sk.compile = function (source, filename, mode, canSuspend) {
     //print("FILE:", filename);
+    // __future__ flags can be set from code
+    // (with "from __future__ import ..." statements),
+    // so make a temporary object that can be edited.
+    var savedFlags = Sk.__future__;
+    Sk.__future__ = Object.create(Sk.__future__);
+
     var parse = Sk.parse(filename, source);
     var ast = Sk.astFromParse(parse.cst, filename, parse.flags);
+    // console.log(JSON.stringify(ast, undefined, 2));
 
     // compilers flags, later we can add other ones too
     var flags = {};
@@ -2641,6 +2815,9 @@ Sk.compile = function (source, filename, mode, canSuspend) {
     var st = Sk.symboltable(ast, filename);
     var c = new Compiler(filename, st, flags.cf_flags, canSuspend, source); // todo; CO_xxx
     var funcname = c.cmod(ast);
+
+    // Restore the global __future__ flags
+    Sk.__future__ = savedFlags;
 
     var ret = "$compiledmod = function() {" + c.result.join("") + "\nreturn " + funcname + ";}();";
     return {

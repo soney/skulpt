@@ -1,5 +1,6 @@
 import random
 try:
+    10/0
     from vega_caller import render_graph
 except:
     print("Mock render")
@@ -221,7 +222,7 @@ class Data:
         else:
             keys = kwargs.keys()
             vals = []
-            primary_key = keys[0]
+            primary_key = list(keys)[0]
             for ix in range(len(kwargs[primary_key])):
                 d = {}
                 for key in keys:
@@ -254,6 +255,9 @@ if __name__ == '__main__':
     print(d)
     print(type(Chart({'a':list("abc"), 'b':[1,2,3]}).mark_bar().encode(x='a:N',y='b')))
     aa = Chart(Data(a=[3,4,5], b=[1,2,3], c=['r','g','b'])).mark_point(color='red').encode(x='b',y='a',color='c:O')
+    print("aa = ", aa)
+    aa.display()
+    
     bb = Chart(Data(a=[1,2,3], b=[4,5,6], c=['r','g','b'])).mark_line().encode(x='b',y='a',color='c:O')
     print((aa+bb).display())
     #Chart(Data(a=[1,2,3,2,2,4,5,5,6,7,8,8,8,8,8,9,0,0])).mark_bar().encode(Axis('a:Q', bin=True),y='count()')

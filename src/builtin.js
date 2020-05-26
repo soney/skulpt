@@ -7,20 +7,20 @@
 
 Sk.builtin.range = function range (start, stop, step) {
     var ret = [];
+    var lst;
     var i;
 
     Sk.builtin.pyCheckArgsLen("range", arguments.length, 1, 3);
-    Sk.builtin.pyCheckType("start", "integer", Sk.builtin.checkInt(start));
+    Sk.builtin.pyCheckType("start", "integer", Sk.misceval.isIndex(start));
+    start = Sk.misceval.asIndex(start);
     if (stop !== undefined) {
-        Sk.builtin.pyCheckType("stop", "integer", Sk.builtin.checkInt(stop));
+        Sk.builtin.pyCheckType("stop", "integer", Sk.misceval.isIndex(stop));
+        stop = Sk.misceval.asIndex(stop);
     }
     if (step !== undefined) {
-        Sk.builtin.pyCheckType("step", "integer", Sk.builtin.checkInt(step));
+        Sk.builtin.pyCheckType("step", "integer", Sk.misceval.isIndex(step));
+        step = Sk.misceval.asIndex(step);
     }
-
-    start = Sk.builtin.asnum$(start);
-    stop = Sk.builtin.asnum$(stop);
-    step = Sk.builtin.asnum$(step);
 
     if ((stop === undefined) && (step === undefined)) {
         stop = start;
@@ -34,17 +34,46 @@ Sk.builtin.range = function range (start, stop, step) {
         throw new Sk.builtin.ValueError("range() step argument must not be zero");
     }
 
-    if (step > 0) {
-        for (i = start; i < stop; i += step) {
-            ret.push(new Sk.builtin.int_(i));
+    if ((typeof start === "number")
+	&& (typeof stop === "number")
+	&& (typeof step === "number")) {
+        if (step > 0) {
+            for (i = start; i < stop; i += step) {
+                ret.push(new Sk.builtin.int_(i));
+            }
+        } else {
+            for (i = start; i > stop; i += step) {
+                ret.push(new Sk.builtin.int_(i));
+            }
         }
     } else {
-        for (i = start; i > stop; i += step) {
-            ret.push(new Sk.builtin.int_(i));
+        // This is going to be slow, really needs to be a generator!
+        var startlng = new Sk.builtin.lng(start);
+        var stoplng = new Sk.builtin.lng(stop);
+        var steplng = new Sk.builtin.lng(step);
+
+        if (steplng.nb$ispositive()) {
+            i = startlng;
+            while (Sk.misceval.isTrue(i.ob$lt(stoplng))) {
+                ret.push(i);
+                i = i.nb$add(steplng);
+            }
+        } else {
+            i = startlng;
+            while (Sk.misceval.isTrue(i.ob$gt(stoplng))) {
+                ret.push(i);
+                i = i.nb$add(steplng);
+            }
         }
     }
 
-    return new Sk.builtin.list(ret);
+    lst = new Sk.builtin.list(ret);
+
+    if (Sk.__future__.python3) {
+        return new Sk.builtin.range_(start, stop, step, lst);
+    }
+
+    return lst;
 };
 
 Sk.builtin.asnum$ = function (a) {
@@ -536,10 +565,9 @@ Sk.builtin.int2str_ = function helper_ (x, radix, prefix) {
     var str = "";
     if (x instanceof Sk.builtin.lng) {
         suffix = "";
-        if (radix !== 2) {
+        if (radix !== 2 && (!(Sk.__future__.python3))) {
             suffix = "L";
         }
-
         str = x.str$(radix, false);
         if (x.nb$isnegative()) {
             return new Sk.builtin.str("-" + prefix + str + suffix);
@@ -842,20 +870,16 @@ Sk.builtin.setattr = function setattr (obj, pyName, value) {
     var jsName;
     Sk.builtin.pyCheckArgsLen("setattr", arguments.length, 3, 3);
     // cannot set or del attr from builtin type
-    if (obj === undefined || obj["$r"] === undefined || obj["$r"]().v.slice(1,5) !== "type") {
-        if (!Sk.builtin.checkString(pyName)) {
-            throw new Sk.builtin.TypeError("attribute name must be string");
-        }
-        jsName = pyName.$jsstr();
-        if (obj.tp$setattr) {
-            obj.tp$setattr(new Sk.builtin.str(Sk.fixReservedWords(jsName)), value);
-        } else {
-            throw new Sk.builtin.AttributeError("object has no attribute " + jsName);
-        }
-        return Sk.builtin.none.none$;
+    if (!Sk.builtin.checkString(pyName)) {
+        throw new Sk.builtin.TypeError("attribute name must be string");
     }
-
-    throw new Sk.builtin.TypeError("can't set attributes of built-in/extension type '" + obj.tp$name + "'");
+    jsName = pyName.$jsstr();
+    if (obj.tp$setattr) {
+        obj.tp$setattr(new Sk.builtin.str(Sk.fixReservedWords(jsName)), value);
+    } else {
+        throw new Sk.builtin.AttributeError("object has no attribute " + jsName);
+    }
+    return Sk.builtin.none.none$;
 };
 
 Sk.builtin.raw_input = function (prompt) {
@@ -1007,11 +1031,9 @@ Sk.builtin.filter = function filter (fun, iterable) {
     var add;
     var ctor;
     Sk.builtin.pyCheckArgsLen("filter", arguments.length, 2, 2);
-
     if (!Sk.builtin.checkIterable(iterable)) {
         throw new Sk.builtin.TypeError("'" + Sk.abstr.typeName(iterable) + "' object is not iterable");
     }
-
     ctor = function () {
         return [];
     };
@@ -1351,10 +1373,6 @@ Sk.builtin.delattr = function delattr (obj, attr) {
 
 Sk.builtin.execfile = function execfile () {
     throw new Sk.builtin.NotImplementedError("execfile is not yet implemented");
-};
-
-Sk.builtin.frozenset = function frozenset () {
-    throw new Sk.builtin.NotImplementedError("frozenset is not yet implemented");
 };
 
 Sk.builtin.help = function help () {

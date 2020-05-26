@@ -55,6 +55,10 @@ Sk.abstr.boNameToSlotFuncLhs_ = function (obj, name) {
             return obj.nb$subtract ? obj.nb$subtract : obj["__sub__"];
         case "Mult":
             return obj.nb$multiply ? obj.nb$multiply : obj["__mul__"];
+        case "MatMult":
+            if (Sk.__future__.python3) {
+                return obj.tp$matmul ? obj.tp$matmul : obj["__matmul__"];
+            }
         case "Div":
             return obj.nb$divide ? obj.nb$divide : obj["__div__"];
         case "FloorDiv":
@@ -90,6 +94,10 @@ Sk.abstr.boNameToSlotFuncRhs_ = function (obj, name) {
             return obj.nb$reflected_subtract ? obj.nb$reflected_subtract : obj["__rsub__"];
         case "Mult":
             return obj.nb$reflected_multiply ? obj.nb$reflected_multiply : obj["__rmul__"];
+        case "MatMult":
+            if (Sk.__future__.python3) {
+                return obj.tp$reflected_matmul ? obj.tp$reflected_matmul : obj["__rmatmul__"];
+            }
         case "Div":
             return obj.nb$reflected_divide ? obj.nb$reflected_divide : obj["__rdiv__"];
         case "FloorDiv":
@@ -121,6 +129,10 @@ Sk.abstr.iboNameToSlotFunc_ = function (obj, name) {
             return obj.nb$inplace_subtract ? obj.nb$inplace_subtract : obj["__isub__"];
         case "Mult":
             return obj.nb$inplace_multiply ? obj.nb$inplace_multiply : obj["__imul__"];
+        case "MatMult":
+            if (Sk.__future__.python3) {
+                return obj.tp$inplace_matmul ? obj.tp$inplace_matmul : obj["__imatmul__"];
+            }
         case "Div":
             return obj.nb$inplace_divide ? obj.nb$inplace_divide : obj["__idiv__"];
         case "FloorDiv":
@@ -667,6 +679,27 @@ Sk.abstr.sequenceUnpack = function (seq, n) {
     return res;
 };
 
+// Unpack mapping into a JS array of alternating keys/values, possibly suspending
+// Skulpt uses a slightly grungy format for keyword args
+// into misceval.apply() and friends (alternating JS strings and Python values).
+// We should probably migrate that interface to using Python strings
+// at some point, but in the meantime we have this function to
+// unpack keyword dictionaries into our special format
+Sk.abstr.mappingUnpackIntoKeywordArray = function(jsArray, pyMapping, pyCodeObject) {
+    return Sk.misceval.chain(pyMapping.tp$getattr(new Sk.builtin.str("items")), function(itemfn) {
+        if (!itemfn) { throw new Sk.builtin.TypeError("Object is not a mapping"); }
+        return Sk.misceval.callsimOrSuspend(itemfn);
+    }, function(items) {
+        return Sk.misceval.iterFor(Sk.abstr.iter(items), function(item) {
+            if (!item || !item.v) { throw new Sk.builtin.TypeError("Object is not a mapping; items() does not return tuples"); }
+            if (!(item.v[0] instanceof Sk.builtin.str)) {
+                throw new Sk.builtin.TypeError((pyCodeObject.tp$name ? pyCodeObject.tp$name +":" : "") + "keywords must be strings");
+            }
+            jsArray.push(item.v[0].v, item.v[1]);
+        });
+    });
+};
+
 //
 // Object
 //
@@ -678,7 +711,7 @@ Sk.abstr.objectFormat = function (obj, format_spec) {
     // Find the (unbound!) __format__ method (a borrowed reference)
     meth = Sk.abstr.lookupSpecial(obj, Sk.builtin.str.$format);
     if (meth == null) {
-        throw new Sk.builtin.TypeError("Type " + Sk.abstr.typeName(obj) + " doesn't define __format__");
+        return Sk.misceval.callsimArray(Sk.builtin.object.prototype["__format__"], [obj, format_spec]);
     }
 
     // And call it
@@ -797,26 +830,30 @@ Sk.exportSymbol("Sk.abstr.objectSetItem", Sk.abstr.objectSetItem);
 
 
 Sk.abstr.gattr = function (obj, pyName, canSuspend) {
-    var ret, f;
-    var objname = Sk.abstr.typeName(obj);
-    var jsName = pyName.$jsstr();
-
-    if (obj === null) {
+    // TODO is it even valid to pass something this shape in here?
+    // Should this be an assert?
+    if (obj === null || !obj.tp$getattr) {
+        let objname = Sk.abstr.typeName(obj);
+        let jsName = pyName.$jsstr();
         throw new Sk.builtin.AttributeError("'" + objname + "' object has no attribute '" + jsName + "'");
     }
 
-    if (obj.tp$getattr !== undefined) {
-        ret = obj.tp$getattr(pyName, canSuspend);
+    // This function is so hot that we do our own inline suspension checks
+
+    let ret = obj.tp$getattr(pyName, canSuspend);
+
+    if (ret === undefined) {
+        throw new Sk.builtin.AttributeError("'" + Sk.abstr.typeName(obj) + "' object has no attribute '" + pyName.$jsstr() + "'");
+    } else if (ret.$isSuspension) {
+        return Sk.misceval.chain(ret, function(r) {
+            if (r === undefined) {
+                throw new Sk.builtin.AttributeError("'" + Sk.abstr.typeName(obj) + "' object has no attribute '" + pyName.$jsstr() + "'");
+            }
+            return r;
+        });
+    } else {
+        return ret;
     }
-
-    ret = Sk.misceval.chain(ret, function(r) {
-        if (r === undefined) {
-            throw new Sk.builtin.AttributeError("'" + objname + "' object has no attribute '" + jsName + "'");
-        }
-        return r;
-    });
-
-    return canSuspend ? ret : Sk.misceval.retryOptionalSuspensionOrThrow(ret);
 };
 Sk.exportSymbol("Sk.abstr.gattr", Sk.abstr.gattr);
 

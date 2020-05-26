@@ -8,7 +8,6 @@ Sk.builtins = {
     "min"       : new Sk.builtin.func(Sk.builtin.min),
     "max"       : new Sk.builtin.func(Sk.builtin.max),
     "sum"       : new Sk.builtin.func(Sk.builtin.sum),
-    "zip"       : new Sk.builtin.func(Sk.builtin.zip),
     "abs"       : new Sk.builtin.func(Sk.builtin.abs),
     "fabs"      : new Sk.builtin.func(Sk.builtin.fabs),
     "ord"       : new Sk.builtin.func(Sk.builtin.ord),
@@ -25,13 +24,12 @@ Sk.builtins = {
     "hasattr"   : new Sk.builtin.func(Sk.builtin.hasattr),
     "id"        : new Sk.builtin.func(Sk.builtin.id),
 
-    "map"       : new Sk.builtin.func(Sk.builtin.map),
-    "filter"    : new Sk.builtin.func(Sk.builtin.filter),
     "reduce"    : new Sk.builtin.func(Sk.builtin.reduce),
     "sorted"    : new Sk.builtin.func(Sk.builtin.sorted),
     "any"       : new Sk.builtin.func(Sk.builtin.any),
     "all"       : new Sk.builtin.func(Sk.builtin.all),
 
+    "BaseException"      : Sk.builtin.BaseException, 
     "AttributeError"     : Sk.builtin.AttributeError,
     "ValueError"         : Sk.builtin.ValueError,
     "Exception"          : Sk.builtin.Exception,
@@ -52,6 +50,7 @@ Sk.builtins = {
     "NegativePowerError" : Sk.builtin.NegativePowerError,
     "RuntimeError"       : Sk.builtin.RuntimeError,
     "StopIteration"      : Sk.builtin.StopIteration,
+    "SyntaxError"        : Sk.builtin.SyntaxError,
 
     "float_$rw$": Sk.builtin.float_,
     "int_$rw$"  : Sk.builtin.int_,
@@ -110,4 +109,25 @@ Sk.builtins = {
     "coerce"    : Sk.builtin.coerce,
     "intern"    : Sk.builtin.intern
 };
+
+Sk.setupObjects = function (py3) {
+    if (py3) {
+        Sk.builtins["filter"] = Sk.builtin.filter_;
+        Sk.builtins["map"] = Sk.builtin.map_;
+        Sk.builtins["zip"] = Sk.builtin.zip_;
+        Sk.builtins["range"] = new Sk.builtin.func(Sk.builtin.xrange);
+        delete Sk.builtins["xrange"];
+        delete Sk.builtins["StandardError"];
+        delete Sk.builtins["unicode"];
+    } else {
+        Sk.builtins["filter"] = new Sk.builtin.func(Sk.builtin.filter);
+        Sk.builtins["map"] = new Sk.builtin.func(Sk.builtin.map);
+        Sk.builtins["zip"] = new Sk.builtin.func(Sk.builtin.zip);
+        Sk.builtins["range"] = new Sk.builtin.func(Sk.builtin.range);
+        Sk.builtins["xrange"] = new Sk.builtin.func(Sk.builtin.xrange);
+        Sk.builtins["StandardError"] = Sk.builtin.StandardError;
+        Sk.builtins["unicode"] = Sk.builtin.str;
+    }
+};
+Sk.exportSymbol("Sk.setupObjects", Sk.setupObjects);
 Sk.exportSymbol("Sk.builtins", Sk.builtins);

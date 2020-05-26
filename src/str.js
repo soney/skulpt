@@ -156,7 +156,7 @@ Sk.builtin.str.prototype.tp$iter = function () {
 
 Sk.builtin.str.prototype.tp$richcompare = function (other, op) {
     if (!(other instanceof Sk.builtin.str)) {
-        return undefined;
+        return Sk.builtin.NotImplemented.NotImplemented$;
     }
 
     switch (op) {
@@ -387,26 +387,6 @@ Sk.builtin.str.prototype["rstrip"] = new Sk.builtin.func(function (self, chars) 
         pattern = new RegExp("[" + regex + "]+$", "g");
     }
     return new Sk.builtin.str(self.v.replace(pattern, ""));
-});
-
-Sk.builtin.str.prototype["__format__"] = new Sk.builtin.func(function (self, format_spec) {
-    var formatstr;
-    Sk.builtin.pyCheckArgsLen("__format__", arguments.length, 2, 2);
-
-    if (!Sk.builtin.checkString(format_spec)) {
-        if (Sk.__future__.exceptions) {
-            throw new Sk.builtin.TypeError("format() argument 2 must be str, not " + Sk.abstr.typeName(format_spec));
-        } else {
-            throw new Sk.builtin.TypeError("format expects arg 2 to be string or unicode, not " + Sk.abstr.typeName(format_spec));
-        }
-    } else {
-        formatstr = Sk.ffi.remapToJs(format_spec);
-        if (formatstr !== "" && formatstr !== "s") {
-            throw new Sk.builtin.NotImplementedError("format spec is not yet implemented");
-        }
-    }
-
-    return new Sk.builtin.str(self);
 });
 
 Sk.builtin.str.prototype["partition"] = new Sk.builtin.func(function (self, sep) {
@@ -909,10 +889,11 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
     var replFunc;
     var index;
     var regex;
+    var val;
+
     if (rhs.constructor !== Sk.builtin.tuple && (rhs.mp$subscript === undefined || rhs.constructor === Sk.builtin.str)) {
         rhs = new Sk.builtin.tuple([rhs]);
     }
-
     // general approach is to use a regex that matches the format above, and
     // do an re.sub with a function as replacement to make the subs.
 
@@ -938,7 +919,7 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
         fieldWidth = Sk.builtin.asnum$(fieldWidth);
         precision = Sk.builtin.asnum$(precision);
 
-        if (mappingKey === undefined || mappingKey === "") {
+        if ((mappingKey === undefined || mappingKey === "") && conversionType != "%") {
             i = index++;
         } // ff passes '' not undef for some reason
 
@@ -1039,6 +1020,7 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
             var prefix = args[0];
             var r = args[1];
             var j;
+
             if (fieldWidth) {
                 fieldWidth = parseInt(fieldWidth, 10);
                 totLen = r.length + prefix.length;
@@ -1097,10 +1079,15 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
             }
             convName = ["toExponential", "toFixed", "toPrecision"]["efg".indexOf(conversionType.toLowerCase())];
             if (precision === undefined || precision === "") {
+                
                 if (conversionType === "e" || conversionType === "E") {
                     precision = 6;
                 } else if (conversionType === "f" || conversionType === "F") {
-                    precision = 7;
+                    if (Sk.__future__.python3) {
+                        precision = 6;
+                    } else {
+                        precision = 7;
+                    }
                 }
             }
             result = (convValue)[convName](precision); // possible loose of negative zero sign
@@ -1111,7 +1098,16 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
                     result = "-" + result; // add sign for zero
                 }
             }
+            if (Sk.__future__.python3) {
+                if ((result.length >= 7) && (result.slice(0, 6) == "0.0000")) {
 
+                    val = parseFloat(result);
+                    result = val.toExponential(); 
+                }
+                if (result.charAt(result.length -2) == "-") {
+                    result = result.slice(0, result.length - 1) + "0" + result.charAt(result.length - 1);
+                }
+            }
             if ("EFG".indexOf(conversionType) !== -1) {
                 result = result.toUpperCase();
             }
@@ -1150,7 +1146,6 @@ Sk.builtin.str.prototype.nb$remainder = function (rhs) {
             return "%";
         }
     };
-
     ret = this.v.replace(regex, replFunc);
     return new Sk.builtin.str(ret);
 };

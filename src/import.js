@@ -70,12 +70,15 @@ Sk.doOneTimeInitialization = function (canSuspend) {
     // Register a Python class with an internal dictionary, which allows it to
     // be subclassed
     var setUpClass = function (child) {
-        var parent = child.tp$base;
+        var parent = child.prototype.tp$base;
         var bases = [];
         var base;
 
-        for (base = parent; base !== undefined; base = base.tp$base) {
-            bases.push(base);
+        for (base = parent; base !== undefined; base = base.prototype.tp$base) {
+            if (!base.sk$abstract && Sk.builtins[base.tp$name]) {
+                // check the base is not an abstract class and that it is in the builtins dict
+                bases.push(base);
+            }
         }
 
         child.tp$mro = new Sk.builtin.tuple([child]);
@@ -84,7 +87,11 @@ Sk.doOneTimeInitialization = function (canSuspend) {
         }
         child["$d"] = new Sk.builtin.dict([]);
         child["$d"].mp$ass_subscript(Sk.builtin.type.basesStr_, new Sk.builtin.tuple(bases));
-        child["$d"].mp$ass_subscript(Sk.builtin.type.mroStr_, child.tp$mro);
+        child["$d"].mp$ass_subscript(Sk.builtin.type.mroStr_, new Sk.builtin.tuple([child].concat(bases)));
+        child["$d"].mp$ass_subscript(new Sk.builtin.str("__name__"), new Sk.builtin.str(child.prototype.tp$name));
+        child.tp$setattr = function(pyName, value, canSuspend) {
+            throw new Sk.builtin.TypeError("can't set attributes of built-in/extension type '" + this.tp$name + "'");
+        };
     };
 
     for (x in Sk.builtin) {
@@ -116,7 +123,6 @@ Sk.doOneTimeInitialization = function (canSuspend) {
     }
 
 
-    // compile internal python files and add them to the __builtin__ module
     for (var file in Sk.internalPy.files) {
         var fileWithoutExtension = file.split(".")[0].split("/")[1];
         var mod = Sk.importBuiltinWithBody(fileWithoutExtension, false, Sk.internalPy.files[file], true);
@@ -554,7 +560,6 @@ Sk.builtin.__import__ = function (name, globals, locals, fromlist, level) {
                                                     Sk.importModuleInternal_.bind(null, fromName, undefined, undefined, undefined, leafModule, true, true)
                     );
                 }
-
             }
 
             return Sk.misceval.chain(importChain, function() {
@@ -574,11 +579,22 @@ Sk.builtin.__import__ = function (name, globals, locals, fromlist, level) {
 };
 
 Sk.importStar = function (module, loc, global) {
-    var i;
-    var props = Object["getOwnPropertyNames"](module["$d"]);
-    for (i in props) {
-        if (props[i].charAt(0) != "_") {
-            loc[props[i]] = module["$d"][props[i]];
+    var __all__ = module.tp$getattr(new Sk.builtin.str("__all__"));
+
+    if (__all__) {
+        // TODO this does not support naming *modules* in __all__,
+        // only variables
+        for(let it = Sk.abstr.iter(__all__), i = it.tp$iternext();
+            i !== undefined; i = it.tp$iternext()) {
+
+            loc[i.v] = Sk.abstr.gattr(module, i);
+        }
+    } else {
+        let props = Object["getOwnPropertyNames"](module["$d"]);
+        for (let i in props) {
+            if (props[i].charAt(0) != "_") {
+                loc[props[i]] = module["$d"][props[i]];
+            }
         }
     }
 };
