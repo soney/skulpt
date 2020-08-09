@@ -74,7 +74,7 @@ def get(baseurl, params={}):
     full_url = requestURL(baseurl, params)
     if not full_url:
         text_data = "<html><body><h1>invalid request</h1></body></html>"
-        full_url = "Couldn’t generate a valid URL"
+        full_url = "Couldn't generate a valid URL"
     else:
         data = urlopen(full_url)
         text_data = data.read().strip()
